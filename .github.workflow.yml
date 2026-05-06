@@ -11,42 +11,12 @@ jobs:
     
     steps:
     - uses: actions/checkout@v4
-    
-    - name: Set up Python
-      uses: actions/setup-python@v5
+    - uses: actions/setup-python@v5
       with:
         python-version: '3.12'
-    
-    - name: Install dependencies
-      run: |
-        pip install -r requirements.txt
-        pip install pyinstaller
-    
-    - name: Build exe
-      run: pyinstaller --onefile --windowed --name MultiChecker main.py
-    
-    - name: Upload artifact
-      uses: actions/upload-artifact@v4
+    - run: pip install -r requirements.txt pyinstaller
+    - run: pyinstaller --onefile --windowed --name MultiChecker main.py
+    - uses: actions/upload-artifact@v4
       with:
         name: MultiChecker
         path: dist/MultiChecker.exe
-    
-    - name: Create Release
-      uses: actions/create-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        tag_name: v1.0.${{ github.run_number }}
-        release_name: MultiChecker v1.0.${{ github.run_number }}
-        draft: false
-        prerelease: false
-    
-    - name: Upload Release Asset
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: dist/MultiChecker.exe
-        asset_name: MultiChecker.exe
-        asset_content_type: application/x-msdownload
