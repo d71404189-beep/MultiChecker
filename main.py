@@ -59,7 +59,7 @@ class MultiCheckerApp(ctk.CTk):
         
         tabs = ["Email", "Social", "Crypto", "Games", "AI"]
         for tab in tabs:
-            self.tabview.add(i18n.t(tab.lower()))
+            self.tabview.add(tab)
             frame = self.tabview.tab(tab)
             widgets = self.create_tab_content(frame, tab)
             self.tab_widgets[tab] = widgets
