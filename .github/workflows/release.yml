@@ -1,0 +1,73 @@
+name: Build & Release
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: MultiChecker-Windows
+            ext: .exe
+          - os: ubuntu-latest
+            artifact: MultiChecker-Linux
+            ext: ""
+          - os: macos-latest
+            artifact: MultiChecker-macOS
+            ext: ""
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build executable
+        run: |
+          pyinstaller --onefile --windowed --name MultiChecker main.py
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/MultiChecker${{ matrix.ext }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Rename artifacts
+        run: |
+          mkdir release
+          cp artifacts/MultiChecker-Windows/MultiChecker.exe release/MultiChecker-Windows.exe || true
+          cp artifacts/MultiChecker-Linux/MultiChecker release/MultiChecker-Linux || true
+          cp artifacts/MultiChecker-macOS/MultiChecker release/MultiChecker-macOS || true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+          generate_release_notes: true
