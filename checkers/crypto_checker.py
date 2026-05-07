@@ -2,167 +2,292 @@ import asyncio
 import aiohttp
 import re
 
-class CryptoChecker:
+from checkers.base_checker import BaseChecker
+
+
+class CryptoChecker(BaseChecker):
     def __init__(self):
         self.wallet_patterns = {
             "bitcoin": r'^(bc1|[13])[a-zA-HJ-NP-Z0-9]{25,62}$',
             "ethereum": r'^0x[a-fA-F0-9]{40}$',
             "solana": r'^[1-9A-HJ-NP-Za-km-z]{32,44}$',
-            "litecoin": r'^(L|M|[ltc])[a-km-zA-HJ-NP-Z1-9]{26,62}$',
+            "litecoin": r'^(L|M|ltc1)[a-km-zA-HJ-NP-Z1-9]{26,62}$',
             "tron": r'^T[a-zA-HJ-NP-Z0-9]{33}$',
             "dash": r'^X[1-9A-HJ-NP-Za-km-z]{24,33}$',
             "monero": r'^4[0-9AB][1-9A-HJ-NP-Za-km-z]{93}$',
             "ripple": r'^r[1-9A-HJ-NP-Za-km-z]{24,34}$',
+            "dogecoin": r'^D[5-9A-HJ-NP-U][1-9A-HJ-NP-Za-km-z]{32}$',
+            "bnb": r'^bnb1[a-z0-9]{38}$',
         }
-        
         self.exchanges = ["binance", "bybit", "okx", "huobi", "kucoin", "gate", "mexc", "bitget"]
-    
-    async def check(self, data: str, timeout: int = 10) -> dict:
-        result = {
-            "input": data,
-            "type": "unknown",
-            "valid": False,
-            "exists": False,
-            "info": {}
-        }
-        
+
+    async def check(self, data: str, timeout: int = 10, proxy: str = None, session: aiohttp.ClientSession = None) -> dict:
+        result = self.make_result(input=data, type="unknown")
+
         wallet_type = self._detect_wallet(data)
         if wallet_type:
             result["type"] = "wallet"
             result["wallet_type"] = wallet_type
-            
-            if wallet_type == "bitcoin":
-                result = await self._check_bitcoin(data, timeout)
-            elif wallet_type == "ethereum":
-                result = await self._check_ethereum(data, timeout)
-            elif wallet_type == "solana":
-                result = await self._check_solana(data, timeout)
-            elif wallet_type == "tron":
-                result = await self._check_tron(data, timeout)
-            elif wallet_type == "litecoin":
-                result = await self._check_litecoin(data, timeout)
-            elif wallet_type == "dash":
-                result = await self._check_dash(data, timeout)
-            elif wallet_type == "monero":
-                result = await self._check_monero(data, timeout)
-            elif wallet_type == "ripple":
-                result = await self._check_ripple(data, timeout)
+
+            own_session = session is None
+            if own_session:
+                session = aiohttp.ClientSession()
+
+            try:
+                handler = {
+                    "bitcoin": self._check_bitcoin,
+                    "ethereum": self._check_ethereum,
+                    "solana": self._check_solana,
+                    "tron": self._check_tron,
+                    "litecoin": self._check_litecoin,
+                    "dash": self._check_dash,
+                    "monero": self._check_monero,
+                    "ripple": self._check_ripple,
+                    "dogecoin": self._check_dogecoin,
+                    "bnb": self._check_bnb,
+                }.get(wallet_type)
+
+                if handler:
+                    result = await handler(data, timeout, proxy, session)
+                else:
+                    result["info"]["error"] = f"No checker for {wallet_type}"
+            finally:
+                if own_session:
+                    await session.close()
         else:
             exchange = self._detect_exchange(data)
             if exchange:
                 result["type"] = "exchange"
                 result["exchange"] = exchange
-                result = await self._check_exchange(data, exchange, timeout)
+                result["info"]["message"] = f"Detected exchange: {exchange}"
             else:
                 result["info"]["error"] = "Unknown crypto format"
-        
+
         return result
-    
+
     def _detect_wallet(self, data: str) -> str:
         data = data.strip()
-        
         for wallet_type, pattern in self.wallet_patterns.items():
             if re.match(pattern, data):
                 return wallet_type
         return None
-    
+
     def _detect_exchange(self, data: str) -> str:
         data = data.lower()
-        
         for exchange in self.exchanges:
             if exchange in data:
                 return exchange
         return None
-    
-    async def _check_bitcoin(self, address: str, timeout: int) -> dict:
-        result = {"input": address, "type": "wallet", "wallet_type": "bitcoin", "valid": True, "exists": False, "info": {}}
-        
+
+    async def _check_bitcoin(self, address, timeout, proxy, session):
+        result = self.make_result(input=address, type="wallet", wallet_type="bitcoin", valid=True)
         try:
-            async with aiohttp.ClientSession() as session:
-                url = f"https://blockchain.info/q/addressbalance/{address}"
-                async with session.get(url, timeout=aiohttp.ClientTimeout(total=timeout)) as resp:
-                    if resp.status == 200:
-                        balance = await resp.text()
-                        satoshi = int(balance)
-                        result["info"]["balance_btc"] = satoshi / 100000000
-                        result["exists"] = satoshi >= 0
+            url = f"https://blockchain.info/q/addressbalance/{address}"
+            resp = await self.fetch(session, "GET", url, timeout=timeout, proxy=proxy)
+            if resp.status == 200:
+                balance = await resp.text()
+                resp.close()
+                satoshi = int(balance)
+                result["info"]["balance_btc"] = satoshi / 100_000_000
+                result["exists"] = True
+                result["info"]["message"] = f"Balance: {result['info']['balance_btc']:.8f} BTC"
+            else:
+                resp.close()
+                result["info"]["message"] = f"HTTP {resp.status}"
         except Exception as e:
             result["info"]["error"] = str(e)
-        
         return result
-    
-    async def _check_ethereum(self, address: str, timeout: int) -> dict:
-        result = {"input": address, "type": "wallet", "wallet_type": "ethereum", "valid": True, "exists": False, "info": {}}
-        
+
+    async def _check_ethereum(self, address, timeout, proxy, session):
+        result = self.make_result(input=address, type="wallet", wallet_type="ethereum", valid=True)
         try:
-            async with aiohttp.ClientSession() as session:
-                url = f"https://api.etherscan.io/api?module=account&action=balance&address={address}&tag=latest"
-                async with session.get(url, timeout=aiohttp.ClientTimeout(total=timeout)) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        if data.get("status") == "1":
-                            balance_wei = int(data["result"])
-                            result["info"]["balance_eth"] = balance_wei / 10**18
-                            result["exists"] = True
+            url = f"https://api.etherscan.io/api?module=account&action=balance&address={address}&tag=latest"
+            resp = await self.fetch(session, "GET", url, timeout=timeout, proxy=proxy)
+            if resp.status == 200:
+                data = await resp.json()
+                resp.close()
+                if data.get("status") == "1":
+                    balance_wei = int(data["result"])
+                    result["info"]["balance_eth"] = balance_wei / 10**18
+                    result["exists"] = True
+                    result["info"]["message"] = f"Balance: {result['info']['balance_eth']:.6f} ETH"
+                else:
+                    result["info"]["message"] = data.get("message", "Unknown error")
+            else:
+                resp.close()
+                result["info"]["message"] = f"HTTP {resp.status}"
         except Exception as e:
             result["info"]["error"] = str(e)
-        
         return result
-    
-    async def _check_solana(self, address: str, timeout: int) -> dict:
-        result = {"input": address, "type": "wallet", "wallet_type": "solana", "valid": True, "exists": False, "info": {}}
-        
+
+    async def _check_solana(self, address, timeout, proxy, session):
+        result = self.make_result(input=address, type="wallet", wallet_type="solana", valid=True)
         try:
-            async with aiohttp.ClientSession() as session:
-                url = f"https://api.mainnet-beta.solana.com"
-                payload = {
-                    "jsonrpc": "2.0",
-                    "id": 1,
-                    "method": "getBalance",
-                    "params": [address]
-                }
-                async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=timeout)) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        if "result" in data:
-                            lamports = data["result"]["value"]
-                            result["info"]["balance_sol"] = lamports / 10**9
-                            result["exists"] = True
+            url = "https://api.mainnet-beta.solana.com"
+            payload = {"jsonrpc": "2.0", "id": 1, "method": "getBalance", "params": [address]}
+            resp = await self.fetch(session, "POST", url, timeout=timeout, proxy=proxy,
+                                    json=payload, headers={"Content-Type": "application/json"})
+            if resp.status == 200:
+                data = await resp.json()
+                resp.close()
+                if "result" in data:
+                    lamports = data["result"]["value"]
+                    result["info"]["balance_sol"] = lamports / 10**9
+                    result["exists"] = True
+                    result["info"]["message"] = f"Balance: {result['info']['balance_sol']:.4f} SOL"
+                elif "error" in data:
+                    result["info"]["message"] = data["error"].get("message", "RPC error")
+            else:
+                resp.close()
+                result["info"]["message"] = f"HTTP {resp.status}"
         except Exception as e:
             result["info"]["error"] = str(e)
-        
         return result
-    
-    async def _check_tron(self, address: str, timeout: int) -> dict:
-        result = {"input": address, "type": "wallet", "wallet_type": "tron", "valid": True, "exists": False, "info": {}}
+
+    async def _check_tron(self, address, timeout, proxy, session):
+        result = self.make_result(input=address, type="wallet", wallet_type="tron", valid=True)
+        try:
+            url = f"https://apilist.tronscanapi.com/api/accountv2?address={address}"
+            resp = await self.fetch(session, "GET", url, timeout=timeout, proxy=proxy)
+            if resp.status == 200:
+                data = await resp.json()
+                resp.close()
+                if data.get("totalTransactionCount", 0) > 0 or data.get("balance", 0) > 0:
+                    balance = data.get("balance", 0) / 10**6
+                    result["info"]["balance_trx"] = balance
+                    result["exists"] = True
+                    result["info"]["message"] = f"Balance: {balance:.2f} TRX"
+                    result["info"]["tx_count"] = data.get("totalTransactionCount", 0)
+                else:
+                    result["info"]["message"] = "Wallet empty or not found"
+            else:
+                resp.close()
+                result["info"]["message"] = f"HTTP {resp.status}"
+        except Exception as e:
+            result["info"]["error"] = str(e)
         return result
-    
-    async def _check_litecoin(self, address: str, timeout: int) -> dict:
-        result = {"input": address, "type": "wallet", "wallet_type": "litecoin", "valid": True, "exists": False, "info": {}}
+
+    async def _check_litecoin(self, address, timeout, proxy, session):
+        result = self.make_result(input=address, type="wallet", wallet_type="litecoin", valid=True)
+        try:
+            url = f"https://api.blockchair.com/litecoin/dashboards/address/{address}"
+            resp = await self.fetch(session, "GET", url, timeout=timeout, proxy=proxy)
+            if resp.status == 200:
+                data = await resp.json()
+                resp.close()
+                addr_data = data.get("data", {}).get(address, {}).get("address", {})
+                balance = addr_data.get("balance", 0) / 10**8
+                result["info"]["balance_ltc"] = balance
+                result["exists"] = True
+                result["info"]["message"] = f"Balance: {balance:.8f} LTC"
+            else:
+                resp.close()
+                result["info"]["message"] = f"HTTP {resp.status}"
+        except Exception as e:
+            result["info"]["error"] = str(e)
         return result
-    
-    async def _check_dash(self, address: str, timeout: int) -> dict:
-        result = {"input": address, "type": "wallet", "wallet_type": "dash", "valid": True, "exists": False, "info": {}}
+
+    async def _check_dash(self, address, timeout, proxy, session):
+        result = self.make_result(input=address, type="wallet", wallet_type="dash", valid=True)
+        try:
+            url = f"https://api.blockchair.com/dash/dashboards/address/{address}"
+            resp = await self.fetch(session, "GET", url, timeout=timeout, proxy=proxy)
+            if resp.status == 200:
+                data = await resp.json()
+                resp.close()
+                addr_data = data.get("data", {}).get(address, {}).get("address", {})
+                balance = addr_data.get("balance", 0) / 10**8
+                result["info"]["balance_dash"] = balance
+                result["exists"] = True
+                result["info"]["message"] = f"Balance: {balance:.8f} DASH"
+            else:
+                resp.close()
+                result["info"]["message"] = f"HTTP {resp.status}"
+        except Exception as e:
+            result["info"]["error"] = str(e)
         return result
-    
-    async def _check_monero(self, address: str, timeout: int) -> dict:
-        result = {"input": address, "type": "wallet", "wallet_type": "monero", "valid": True, "exists": False, "info": {}}
+
+    async def _check_monero(self, address, timeout, proxy, session):
+        result = self.make_result(input=address, type="wallet", wallet_type="monero", valid=True)
+        try:
+            url = f"https://xmrchain.net/api/outputs?address={address}&viewkey=&page=0&limit=1"
+            resp = await self.fetch(session, "GET", url, timeout=timeout, proxy=proxy)
+            status = resp.status
+            resp.close()
+            if status == 200:
+                result["exists"] = True
+                result["info"]["message"] = "Monero address format valid, chain query succeeded"
+            else:
+                result["info"]["message"] = f"HTTP {status}"
+        except Exception as e:
+            result["info"]["error"] = str(e)
         return result
-    
-    async def _check_ripple(self, address: str, timeout: int) -> dict:
-        result = {"input": address, "type": "wallet", "wallet_type": "ripple", "valid": True, "exists": False, "info": {}}
+
+    async def _check_ripple(self, address, timeout, proxy, session):
+        result = self.make_result(input=address, type="wallet", wallet_type="ripple", valid=True)
+        try:
+            url = "https://s1.ripple.com:51234/"
+            payload = {"method": "account_info", "params": [{"account": address, "strict": True}]}
+            resp = await self.fetch(session, "POST", url, timeout=timeout, proxy=proxy,
+                                    json=payload, headers={"Content-Type": "application/json"})
+            if resp.status == 200:
+                data = await resp.json()
+                resp.close()
+                r = data.get("result", {})
+                if r.get("status") == "success":
+                    balance_drops = int(r.get("account_data", {}).get("Balance", 0))
+                    result["info"]["balance_xrp"] = balance_drops / 10**6
+                    result["exists"] = True
+                    result["info"]["message"] = f"Balance: {result['info']['balance_xrp']:.2f} XRP"
+                else:
+                    result["info"]["message"] = r.get("error_message", "Account not found")
+            else:
+                resp.close()
+                result["info"]["message"] = f"HTTP {resp.status}"
+        except Exception as e:
+            result["info"]["error"] = str(e)
         return result
-    
-    async def _check_exchange(self, data: str, exchange: str, timeout: int) -> dict:
-        result = {"input": data, "type": "exchange", "exchange": exchange, "valid": True, "exists": False, "info": {}}
-        
-        if exchange == "binance":
-            try:
-                async with aiohttp.ClientSession() as session:
-                    url = f"https://api.binance.com/api/v3/account?address={data}"
-                    async with session.get(url, timeout=aiohttp.ClientTimeout(total=timeout)) as resp:
-                        result["info"]["status"] = resp.status
-            except Exception as e:
-                result["info"]["error"] = str(e)
-        
+
+    async def _check_dogecoin(self, address, timeout, proxy, session):
+        result = self.make_result(input=address, type="wallet", wallet_type="dogecoin", valid=True)
+        try:
+            url = f"https://api.blockchair.com/dogecoin/dashboards/address/{address}"
+            resp = await self.fetch(session, "GET", url, timeout=timeout, proxy=proxy)
+            if resp.status == 200:
+                data = await resp.json()
+                resp.close()
+                addr_data = data.get("data", {}).get(address, {}).get("address", {})
+                balance = addr_data.get("balance", 0) / 10**8
+                result["info"]["balance_doge"] = balance
+                result["exists"] = True
+                result["info"]["message"] = f"Balance: {balance:.4f} DOGE"
+            else:
+                resp.close()
+                result["info"]["message"] = f"HTTP {resp.status}"
+        except Exception as e:
+            result["info"]["error"] = str(e)
+        return result
+
+    async def _check_bnb(self, address, timeout, proxy, session):
+        result = self.make_result(input=address, type="wallet", wallet_type="bnb", valid=True)
+        try:
+            url = f"https://dex.binance.org/api/v1/account/{address}"
+            resp = await self.fetch(session, "GET", url, timeout=timeout, proxy=proxy)
+            if resp.status == 200:
+                data = await resp.json()
+                resp.close()
+                balances = data.get("balances", [])
+                bnb_bal = next((b for b in balances if b.get("symbol") == "BNB"), None)
+                if bnb_bal:
+                    result["info"]["balance_bnb"] = float(bnb_bal.get("free", 0))
+                result["exists"] = True
+                result["info"]["message"] = "BNB account found"
+            elif resp.status == 404:
+                resp.close()
+                result["info"]["message"] = "Account not found"
+            else:
+                resp.close()
+                result["info"]["message"] = f"HTTP {resp.status}"
+        except Exception as e:
+            result["info"]["error"] = str(e)
         return result
