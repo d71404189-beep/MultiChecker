@@ -16,6 +16,7 @@ class AIChecker(BaseChecker):
         "huggingface": "Hugging Face",
         "replicate": "Replicate",
         "stable_diffusion": "Stable Diffusion",
+        "devin": "Devin AI",
     }
 
     async def check(self, data: str, service: str = None, timeout: int = 10, proxy: str = None, session: aiohttp.ClientSession = None) -> dict:
@@ -43,6 +44,7 @@ class AIChecker(BaseChecker):
                 "huggingface": self._check_huggingface,
                 "replicate": self._check_replicate,
                 "stable_diffusion": self._check_stable_diffusion,
+                "devin": self._check_devin,
             }.get(detected)
 
             if handler:
@@ -67,6 +69,7 @@ class AIChecker(BaseChecker):
             "huggingface": "huggingface", "hugging face": "huggingface",
             "replicate": "replicate",
             "stable diffusion": "stable_diffusion", "civitai": "stable_diffusion",
+            "devin": "devin", "devin ai": "devin", "cognition": "devin",
         }
         for keyword, svc in mapping.items():
             if keyword in data_lower:
@@ -259,4 +262,35 @@ class AIChecker(BaseChecker):
                 result["info"]["message"] = f"HTTP {status}"
         except Exception as e:
             result["info"]["error"] = str(e)
+        return result
+
+
+    async def _check_devin(self, data, timeout, proxy, session):
+        result = self.make_result(input=data, service="devin", valid=True)
+        clean = data.strip().lstrip("@").replace("https://devin.ai/", "").replace("http://devin.ai/", "")
+
+        if "@" in clean:
+            result["info"]["message"] = "Devin AI subscription/account status requires authenticated session"
+            result["info"]["subscription_check"] = "requires_login"
+            return result
+
+        try:
+            profile_url = f"https://devin.ai/{clean}"
+            resp = await self.fetch(session, "GET", profile_url, timeout=timeout, proxy=proxy)
+            status = resp.status
+            text = await resp.text()
+            resp.close()
+
+            if status == 200 and "not found" not in text.lower():
+                result["exists"] = True
+                result["info"]["message"] = "Devin profile/page accessible"
+            elif status == 404:
+                result["info"]["message"] = "Devin profile not found"
+            else:
+                result["info"]["message"] = f"HTTP {status}"
+
+            result["info"]["subscription_check"] = "requires_login"
+        except Exception as e:
+            result["info"]["error"] = str(e)
+
         return result

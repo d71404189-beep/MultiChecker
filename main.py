@@ -6,9 +6,11 @@ import csv
 import io
 import json
 import os
+import re
 import sys
 import threading
 from datetime import datetime
+from urllib.parse import urlparse
 
 sys.path.insert(0, os.path.dirname(__file__))
 
@@ -222,17 +224,59 @@ class MultiCheckerApp(ctk.CTk):
             except Exception as e:
                 self.log(widgets, f"Import error: {e}")
 
+    def _safe_int(self, value, default):
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
+
+    def _normalize_input_line(self, line, tab_name):
+        raw = line.strip()
+        if not raw:
+            return ""
+
+        email_match = re.search(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}", raw)
+        if tab_name == "Email" and email_match:
+            return email_match.group(0)
+
+        url_match = re.search(r"https?://[^\s|:]+(?:/[^\s|]*)?", raw)
+        cleaned = raw.replace("|", ":")
+
+        if url_match:
+            parsed = urlparse(url_match.group(0))
+            path_bits = [part for part in parsed.path.split("/") if part]
+            if tab_name in {"Social", "Games", "AI"} and path_bits:
+                return path_bits[-1]
+            if tab_name == "Crypto" and path_bits:
+                return path_bits[-1]
+
+        tokens = [t.strip() for t in cleaned.split(":") if t.strip()]
+        tokens = [t for t in tokens if t not in {"http", "https", "//"}]
+
+        if tab_name == "Email":
+            for token in tokens:
+                if "@" in token and "." in token.split("@")[-1]:
+                    return token
+
+        if tab_name in {"Social", "Games", "AI", "Crypto"}:
+            candidate_tokens = [t for t in tokens if not t.lower().startswith("http") and "." not in t]
+            if candidate_tokens:
+                return candidate_tokens[0] if len(candidate_tokens) == 1 else candidate_tokens[-2]
+
+        return tokens[0] if tokens else raw
+
     def start_check(self, tab_name):
         widgets = self.tab_widgets[tab_name]
-        data = widgets["input"].get("1.0", "end").strip().split("\n")
-        data = [d.strip() for d in data if d.strip()]
+        raw_data = widgets["input"].get("1.0", "end").strip().split("\n")
+        data = [self._normalize_input_line(d, tab_name) for d in raw_data if d.strip()]
+        data = [d for d in data if d]
 
         if not data:
             self.log(widgets, i18n.t("no_data"))
             return
 
-        threads = int(widgets["threads"].get())
-        timeout = int(widgets["timeout"].get())
+        threads = self._safe_int(widgets["threads"].get(), 50)
+        timeout = self._safe_int(widgets["timeout"].get(), 10)
         proxy = widgets["proxy"].get().strip()
 
         self.is_running = True
