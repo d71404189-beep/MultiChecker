@@ -1,167 +1,285 @@
 import asyncio
 import aiohttp
 import re
-import json
 
-class GameChecker:
+from checkers.base_checker import BaseChecker
+
+
+class GameChecker(BaseChecker):
     def __init__(self):
         self.games = {
             "steam": {"name": "Steam", "pattern": r'^7656119[0-9]{10}$'},
-            "epic": {"name": "Epic Games", "pattern": r'^[a-zA-Z0-9_-]{1,}$'},
+            "epic": {"name": "Epic Games", "pattern": r'^[a-zA-Z0-9_-]{3,}$'},
             "rockstar": {"name": "Rockstar Games", "pattern": r'^[a-zA-Z0-9_-]{3,20}$'},
             "origin": {"name": "EA Origin", "pattern": r'^[a-zA-Z0-9_-]{3,20}$'},
             "ubisoft": {"name": "Ubisoft", "pattern": r'^[a-zA-Z0-9_-]{3,20}$'},
-            "riot": {"name": "Riot Games", "pattern": r'^.{2,16}$'},
-            "blizzard": {"name": "Blizzard", "pattern": r'^.{2,20}$'},
-            "xbox": {"name": "Xbox", "pattern": r'^[a-zA-Z0-9_-]{1,}$'},
-            "playstation": {"name": "PlayStation", "pattern": r'^[a-zA-Z0-9_-]{1,}$'},
-            "nintendo": {"name": "Nintendo", "pattern": r'^[a-zA-Z0-9_-]{1,}$'},
+            "riot": {"name": "Riot Games", "pattern": r'^.{2,16}#.{2,5}$'},
+            "blizzard": {"name": "Blizzard", "pattern": r'^.{2,20}#[0-9]{4,6}$'},
+            "xbox": {"name": "Xbox", "pattern": r'^[a-zA-Z0-9_ -]{1,15}$'},
+            "playstation": {"name": "PlayStation", "pattern": r'^[a-zA-Z0-9_-]{3,16}$'},
         }
-    
-    async def check(self, data: str, platform: str = None, timeout: int = 10) -> dict:
-        result = {
-            "input": data,
-            "platform": platform or "unknown",
-            "valid": False,
-            "exists": False,
-            "info": {}
-        }
-        
+
+    async def check(self, data: str, platform: str = None, timeout: int = 10, proxy: str = None, session: aiohttp.ClientSession = None) -> dict:
+        result = self.make_result(input=data, platform=platform or "unknown")
+
         detected = platform or self._detect_platform(data)
         result["platform"] = detected
-        
-        if detected == "steam":
-            result = await self._check_steam(data, timeout)
-        elif detected == "epic":
-            result = await self._check_epic(data, timeout)
-        elif detected == "rockstar":
-            result = await self._check_rockstar(data, timeout)
-        elif detected == "origin":
-            result = await self._check_origin(data, timeout)
-        elif detected == "ubisoft":
-            result = await self._check_ubisoft(data, timeout)
-        elif detected == "riot":
-            result = await self._check_riot(data, timeout)
-        elif detected == "blizzard":
-            result = await self._check_blizzard(data, timeout)
-        
+
+        own_session = session is None
+        if own_session:
+            session = aiohttp.ClientSession()
+
+        try:
+            handler = {
+                "steam": self._check_steam,
+                "epic": self._check_epic,
+                "rockstar": self._check_rockstar,
+                "origin": self._check_origin,
+                "ubisoft": self._check_ubisoft,
+                "riot": self._check_riot,
+                "blizzard": self._check_blizzard,
+                "xbox": self._check_xbox,
+                "playstation": self._check_playstation,
+            }.get(detected)
+
+            if handler:
+                result = await handler(data, timeout, proxy, session)
+            else:
+                result["info"]["error"] = f"No checker for {detected}"
+        finally:
+            if own_session:
+                await session.close()
+
         return result
-    
+
     def _detect_platform(self, data: str) -> str:
         data = data.strip()
-        
+
         if re.match(r'^7656119[0-9]{10}$', data):
             return "steam"
-        
+
+        if "#" in data:
+            parts = data.split("#")
+            if len(parts) == 2 and parts[1].isdigit():
+                return "blizzard" if len(parts[1]) >= 4 else "riot"
+            return "riot"
+
+        if re.match(r'^https?://steamcommunity\.com', data):
+            return "steam"
+
         if re.match(r'^[a-zA-Z0-9_-]{3,16}$', data):
-            return "epic"
-        
-        return "epic"
-    
-    async def _check_steam(self, steam_id: str, timeout: int) -> dict:
-        result = {"input": steam_id, "platform": "steam", "valid": True, "exists": False, "info": {}}
-        
-        try:
-            async with aiohttp.ClientSession() as session:
-                url = f"http://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?key=STEAM_API_KEY&steamids={steam_id}"
-                async with session.get(url, timeout=aiohttp.ClientTimeout(total=timeout)) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        if data.get("response", {}).get("players"):
-                            player = data["response"]["players"][0]
-                            result["exists"] = True
-                            result["info"]["personaname"] = player.get("personaname", "")
-                            result["info"]["profileurl"] = player.get("profileurl", "")
-                            result["info"]["personastate"] = player.get("personastate", 0)
-        except Exception as e:
-            result["info"]["error"] = str(e)
-        
-        return result
-    
-    async def _check_epic(self, username: str, timeout: int) -> dict:
-        result = {"input": username, "platform": "epic", "valid": True, "exists": False, "info": {}}
-        
-        try:
-            async with aiohttp.ClientSession() as session:
-                url = f"https://account-public-service-prod.ol.epicgames.com/accountService/api/public/account/byDisplayName/{username}"
-                headers = {"User-Agent": "EpicGamesLauncher/12.2.1-2171"}
-                async with session.get(url, timeout=aiohttp.ClientTimeout(total=timeout), headers=headers) as resp:
-                    result["info"]["status"] = resp.status
-                    if resp.status == 200:
-                        data = await resp.json()
-                        result["exists"] = True
-                        result["info"]["accountId"] = data.get("id", "")
-        except Exception as e:
-            result["info"]["error"] = str(e)
-        
-        return result
-    
-    async def _check_rockstar(self, username: str, timeout: int) -> dict:
-        result = {"input": username, "platform": "rockstar", "valid": True, "exists": False, "info": {}}
-        
-        try:
-            async with aiohttp.ClientSession() as session:
-                url = f"https://www.rockstargames.com/nr/i/v1/profile/{username}"
-                headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-                async with session.get(url, timeout=aiohttp.ClientTimeout(total=timeout), headers=headers) as resp:
-                    result["info"]["status"] = resp.status
-                    if resp.status == 200:
-                        data = await resp.json()
-                        if data.get("isAvailable") == True:
-                            result["exists"] = False
-                        else:
-                            result["exists"] = True
-        except Exception as e:
-            result["info"]["error"] = str(e)
-        
-        return result
-    
-    async def _check_origin(self, username: str, timeout: int) -> dict:
-        result = {"input": username, "platform": "origin", "valid": True, "exists": False, "info": {}}
-        return result
-    
-    async def _check_ubisoft(self, username: str, timeout: int) -> dict:
-        result = {"input": username, "platform": "ubisoft", "valid": True, "exists": False, "info": {}}
-        
-        try:
-            async with aiohttp.ClientSession() as session:
-                url = f"https://public-ubiservices.ubi.com/v3/profiles?namesOnPlatform={username}"
-                headers = {"Ubi-AppId": "00000000-0000-0000-0000-000000000000", "User-Agent": "Mozilla/5.0"}
-                async with session.get(url, timeout=aiohttp.ClientTimeout(total=timeout), headers=headers) as resp:
-                    result["info"]["status"] = resp.status
-                    if resp.status == 200:
-                        data = await resp.json()
-                        if data.get("profiles"):
-                            result["exists"] = True
-        except Exception as e:
-            result["info"]["error"] = str(e)
-        
-        return result
-    
-    async def _check_riot(self, username: str, timeout: int) -> dict:
-        result = {"input": username, "platform": "riot", "valid": True, "exists": False, "info": {}}
-        
-        username_parts = username.split("#")
-        if len(username_parts) == 2:
-            riot_id = username_parts[0]
-            tag = username_parts[1]
-            
+            return "steam"
+
+        return "steam"
+
+    async def _check_steam(self, steam_id, timeout, proxy, session):
+        result = self.make_result(input=steam_id, platform="steam", valid=True)
+        clean = steam_id.strip()
+        if "steamcommunity.com" in clean:
+            parts = clean.rstrip("/").split("/")
+            clean = parts[-1]
+
+        if re.match(r'^7656119[0-9]{10}$', clean):
             try:
-                async with aiohttp.ClientSession() as session:
-                    url = f"https://api.riotgames.com/riot/account/v1/accounts/by-riot-id/{riot_id}/{tag}"
-                    headers = {"User-Agent": "Mozilla/5.0"}
-                    async with session.get(url, timeout=aiohttp.ClientTimeout(total=timeout), headers=headers) as resp:
-                        result["info"]["status"] = resp.status
-                        if resp.status == 200:
-                            data = await resp.json()
-                            result["exists"] = True
-                            result["info"]["puuid"] = data.get("puuid", "")
-                            result["info"]["game_name"] = data.get("gameName", "")
+                url = f"https://steamcommunity.com/profiles/{clean}/?xml=1"
+                resp = await self.fetch(session, "GET", url, timeout=timeout, proxy=proxy)
+                text = await resp.text()
+                resp.close()
+                if "<steamID>" in text:
+                    result["exists"] = True
+                    name_match = re.search(r'<steamID><!\[CDATA\[(.*?)\]\]></steamID>', text)
+                    if name_match:
+                        result["info"]["personaname"] = name_match.group(1)
+                    result["info"]["message"] = "Steam profile found"
+                else:
+                    result["info"]["message"] = "Profile not found"
             except Exception as e:
                 result["info"]["error"] = str(e)
-        
+        else:
+            try:
+                url = f"https://steamcommunity.com/id/{clean}/?xml=1"
+                resp = await self.fetch(session, "GET", url, timeout=timeout, proxy=proxy)
+                text = await resp.text()
+                resp.close()
+                if "<steamID>" in text:
+                    result["exists"] = True
+                    name_match = re.search(r'<steamID><!\[CDATA\[(.*?)\]\]></steamID>', text)
+                    if name_match:
+                        result["info"]["personaname"] = name_match.group(1)
+                    id64_match = re.search(r'<steamID64>(\d+)</steamID64>', text)
+                    if id64_match:
+                        result["info"]["steamid64"] = id64_match.group(1)
+                    result["info"]["message"] = "Steam profile found"
+                else:
+                    result["info"]["message"] = "Profile not found"
+            except Exception as e:
+                result["info"]["error"] = str(e)
         return result
-    
-    async def _check_blizzard(self, username: str, timeout: int) -> dict:
-        result = {"input": username, "platform": "blizzard", "valid": True, "exists": False, "info": {}}
+
+    async def _check_epic(self, username, timeout, proxy, session):
+        result = self.make_result(input=username, platform="epic", valid=True)
+        try:
+            url = "https://www.epicgames.com/id/api/redirect?clientId=3446cd72694c4a4485d81b77adbb2141&responseType=code"
+            resp = await self.fetch(session, "GET", url, timeout=timeout, proxy=proxy)
+            status = resp.status
+            resp.close()
+            result["info"]["status"] = status
+            result["info"]["message"] = "Epic Games endpoint reached"
+        except Exception as e:
+            result["info"]["error"] = str(e)
+        return result
+
+    async def _check_rockstar(self, username, timeout, proxy, session):
+        result = self.make_result(input=username, platform="rockstar", valid=True)
+        try:
+            url = f"https://scapi.rockstargames.com/profile/getprofile?nickname={username}&maxFriends=3"
+            resp = await self.fetch(session, "GET", url, timeout=timeout, proxy=proxy,
+                                    headers={"X-Requested-With": "XMLHttpRequest"})
+            status = resp.status
+            if status == 200:
+                data = await resp.json()
+                resp.close()
+                accounts = data.get("accounts", [])
+                if accounts:
+                    result["exists"] = True
+                    result["info"]["message"] = "Rockstar profile found"
+                    result["info"]["rockstarId"] = accounts[0].get("rockstarId", "")
+                else:
+                    result["info"]["message"] = "Profile not found"
+            else:
+                resp.close()
+                result["info"]["message"] = f"HTTP {status}"
+        except Exception as e:
+            result["info"]["error"] = str(e)
+        return result
+
+    async def _check_origin(self, username, timeout, proxy, session):
+        result = self.make_result(input=username, platform="origin", valid=True)
+        try:
+            url = f"https://api.mozambiquehe.re/nametouid?player={username}&platform=PC"
+            resp = await self.fetch(session, "GET", url, timeout=timeout, proxy=proxy)
+            status = resp.status
+            if status == 200:
+                data = await resp.json()
+                resp.close()
+                if data.get("result"):
+                    result["exists"] = True
+                    result["info"]["message"] = "EA/Origin account found"
+                    result["info"]["uid"] = data.get("result", {}).get("uid", "")
+                else:
+                    result["info"]["message"] = "Account not found"
+            else:
+                resp.close()
+                result["info"]["message"] = f"HTTP {status}"
+        except Exception as e:
+            result["info"]["error"] = str(e)
+        return result
+
+    async def _check_ubisoft(self, username, timeout, proxy, session):
+        result = self.make_result(input=username, platform="ubisoft", valid=True)
+        try:
+            url = f"https://public-ubiservices.ubi.com/v3/profiles?namesOnPlatform={username}&platformType=uplay"
+            resp = await self.fetch(session, "GET", url, timeout=timeout, proxy=proxy,
+                                    headers={
+                                        "Ubi-AppId": "39baebad-39e5-4552-8c25-2c9b919064e2",
+                                        "Content-Type": "application/json",
+                                    })
+            status = resp.status
+            if status == 200:
+                data = await resp.json()
+                resp.close()
+                profiles = data.get("profiles", [])
+                if profiles:
+                    result["exists"] = True
+                    result["info"]["message"] = "Ubisoft profile found"
+                    result["info"]["profileId"] = profiles[0].get("profileId", "")
+                else:
+                    result["info"]["message"] = "Profile not found"
+            else:
+                resp.close()
+                result["info"]["message"] = f"HTTP {status}"
+        except Exception as e:
+            result["info"]["error"] = str(e)
+        return result
+
+    async def _check_riot(self, username, timeout, proxy, session):
+        result = self.make_result(input=username, platform="riot", valid=True)
+        parts = username.split("#")
+        if len(parts) == 2:
+            riot_id, tag = parts[0], parts[1]
+            try:
+                url = "https://account.riotgames.com/"
+                resp = await self.fetch(session, "GET", url, timeout=timeout, proxy=proxy)
+                resp.close()
+                result["info"]["riot_id"] = riot_id
+                result["info"]["tag"] = tag
+                result["info"]["message"] = f"Riot ID format valid: {riot_id}#{tag}"
+            except Exception as e:
+                result["info"]["error"] = str(e)
+        else:
+            result["info"]["message"] = "Invalid Riot ID format (expected Name#Tag)"
+        return result
+
+    async def _check_blizzard(self, username, timeout, proxy, session):
+        result = self.make_result(input=username, platform="blizzard", valid=True)
+        parts = username.split("#")
+        if len(parts) == 2:
+            battletag_name, battletag_num = parts[0], parts[1]
+            try:
+                url = f"https://overwatch.blizzard.com/en-us/career/{battletag_name}-{battletag_num}/"
+                resp = await self.fetch(session, "GET", url, timeout=timeout, proxy=proxy)
+                status = resp.status
+                text = await resp.text()
+                resp.close()
+                if status == 200 and "Profile Not Found" not in text:
+                    result["exists"] = True
+                    result["info"]["message"] = "Blizzard profile found"
+                elif "Profile Not Found" in text:
+                    result["info"]["message"] = "Profile not found"
+                else:
+                    result["info"]["message"] = f"HTTP {status}"
+            except Exception as e:
+                result["info"]["error"] = str(e)
+        else:
+            result["info"]["message"] = "Invalid BattleTag format (expected Name#1234)"
+        return result
+
+    async def _check_xbox(self, gamertag, timeout, proxy, session):
+        result = self.make_result(input=gamertag, platform="xbox", valid=True)
+        try:
+            url = f"https://www.xbox.com/en-US/play/user/{gamertag}"
+            resp = await self.fetch(session, "GET", url, timeout=timeout, proxy=proxy)
+            status = resp.status
+            resp.close()
+            if status == 200:
+                result["exists"] = True
+                result["info"]["message"] = "Xbox profile page loaded"
+            elif status == 404:
+                result["info"]["message"] = "Gamertag not found"
+            else:
+                result["info"]["message"] = f"HTTP {status}"
+        except Exception as e:
+            result["info"]["error"] = str(e)
+        return result
+
+    async def _check_playstation(self, username, timeout, proxy, session):
+        result = self.make_result(input=username, platform="playstation", valid=True)
+        try:
+            url = f"https://psnprofiles.com/{username}"
+            resp = await self.fetch(session, "GET", url, timeout=timeout, proxy=proxy)
+            status = resp.status
+            text = await resp.text()
+            resp.close()
+            if status == 200:
+                if "not-found" in text.lower() or "404" in text:
+                    result["info"]["message"] = "PSN profile not found"
+                else:
+                    result["exists"] = True
+                    result["info"]["message"] = "PSN profile found"
+            elif status == 404:
+                result["info"]["message"] = "PSN profile not found"
+            else:
+                result["info"]["message"] = f"HTTP {status}"
+        except Exception as e:
+            result["info"]["error"] = str(e)
         return result
