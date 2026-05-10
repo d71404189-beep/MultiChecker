@@ -134,6 +134,9 @@ class AIChecker(BaseChecker):
 
     async def _check_openai(self, email, timeout, proxy, session):
         result = self.make_result(input=email, service="chatgpt", valid=True)
+        if "@" not in email or "." not in email.split("@")[-1]:
+            result["info"]["message"] = "Not a valid email format"
+            return result
         try:
             url = "https://auth0.openai.com/u/signup/identifier"
             resp = await self.fetch(session, "POST", url, timeout=timeout, proxy=proxy,
@@ -165,6 +168,9 @@ class AIChecker(BaseChecker):
 
     async def _check_gemini(self, email, timeout, proxy, session):
         result = self.make_result(input=email, service="gemini", valid=True)
+        if "@" not in email or "." not in email.split("@")[-1]:
+            result["info"]["message"] = "Not a valid email format"
+            return result
         try:
             url = "https://accounts.google.com/AccountChooser"
             resp = await self.fetch(session, "GET", url, timeout=timeout, proxy=proxy,
@@ -237,6 +243,9 @@ class AIChecker(BaseChecker):
 
     async def _check_perplexity(self, email, timeout, proxy, session):
         result = self.make_result(input=email, service="perplexity", valid=True)
+        if "@" not in email or "." not in email.split("@")[-1]:
+            result["info"]["message"] = "Not a valid email format"
+            return result
         try:
             url = "https://www.perplexity.ai/api/auth/signin/email"
             resp = await self.fetch(session, "POST", url, timeout=timeout, proxy=proxy,
