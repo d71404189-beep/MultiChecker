@@ -33,6 +33,9 @@ LANG = {
         "checking": "Checking...",
         "file_loaded": "Loaded {} lines from file",
         "linked": "Linked services",
+        "auth_type": "Login",
+        "auth_wallets": "Wallets",
+        "auth_how": "How to access",
     },
     "ru": {
         "title": "Multi Checker Pro",
@@ -68,6 +71,9 @@ LANG = {
         "checking": "Проверка...",
         "file_loaded": "Загружено {} строк из файла",
         "linked": "Привязанные сервисы",
+        "auth_type": "Вход",
+        "auth_wallets": "Кошельки",
+        "auth_how": "Как зайти",
     }
 }
 
