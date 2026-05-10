@@ -66,7 +66,7 @@ class MultiCheckerApp(ctk.CTk):
         self.tabview = ctk.CTkTabview(main_frame, width=1080, height=680)
         self.tabview.pack(pady=5, padx=5, fill="both", expand=True)
 
-        tabs = ["Email", "Social", "Crypto", "Games", "AI"]
+        tabs = ["All", "Email", "Social", "Crypto", "Games", "AI"]
         for tab in tabs:
             self.tabview.add(tab)
             frame = self.tabview.tab(tab)
@@ -109,9 +109,10 @@ class MultiCheckerApp(ctk.CTk):
     def create_tab_content(self, frame, tab_name):
         widgets = {}
 
-        header = ctk.CTkLabel(frame, text=f"{i18n.t(tab_name.lower())} Checker", font=("Arial", 18, "bold"))
+        label_key = "all_categories" if tab_name == "All" else tab_name.lower()
+        header = ctk.CTkLabel(frame, text=f"{i18n.t(label_key)} Checker", font=("Arial", 18, "bold"))
         header.pack(pady=5)
-        self._translatable.append((header, tab_name.lower(), "{} Checker"))
+        self._translatable.append((header, label_key, "{} Checker"))
 
         input_frame = ctk.CTkFrame(frame)
         input_frame.pack(pady=5, padx=10, fill="x")
@@ -297,7 +298,10 @@ class MultiCheckerApp(ctk.CTk):
     def start_check(self, tab_name):
         widgets = self.tab_widgets[tab_name]
         raw_data = widgets["input"].get("1.0", "end").strip().split("\n")
-        data = [self._normalize_input_line(d, tab_name) for d in raw_data if d.strip()]
+        if tab_name == "All":
+            data = [d.strip() for d in raw_data if d.strip()]
+        else:
+            data = [self._normalize_input_line(d, tab_name) for d in raw_data if d.strip()]
         data = [d for d in data if d]
 
         original_count = len(data)
@@ -325,7 +329,11 @@ class MultiCheckerApp(ctk.CTk):
         widgets["status"].configure(text=i18n.t("checking"))
         if dupes_removed > 0:
             self.log(widgets, i18n.t("duplicates_removed").format(dupes_removed))
-        self.log(widgets, i18n.t("starting").format(len(data), threads))
+        if tab_name == "All":
+            cats = 5
+            self.log(widgets, i18n.t("starting_all").format(len(data), cats, len(data) * cats, threads))
+        else:
+            self.log(widgets, i18n.t("starting").format(len(data), threads))
         widgets["progress"].set(0)
 
         thread = threading.Thread(
@@ -342,7 +350,8 @@ class MultiCheckerApp(ctk.CTk):
 
     async def check_all(self, data, tab_name, threads, timeout, proxy, widgets):
         semaphore = asyncio.Semaphore(threads)
-        total = len(data)
+        all_categories = ["Email", "Social", "Crypto", "Games", "AI"]
+        total = len(data) * len(all_categories) if tab_name == "All" else len(data)
         completed = [0]
         valid_count = [0]
         invalid_count = [0]
@@ -362,14 +371,23 @@ class MultiCheckerApp(ctk.CTk):
         connector = aiohttp.TCPConnector(limit=threads, limit_per_host=threads)
 
         async with aiohttp.ClientSession(connector=connector) as session:
-            async def check_with_sem(data_item):
+            async def check_with_sem(data_item, category=None):
                 async with semaphore:
                     if not self.is_running:
                         return None
 
                     p = proxies[completed[0] % len(proxies)] if proxies else None
 
-                    result = await self.check_item(data_item, tab_name, timeout, p, session)
+                    cat = category or tab_name
+                    item = data_item
+                    if category:
+                        item = self._normalize_input_line(data_item, cat)
+                        if not item:
+                            completed[0] += 1
+                            progress = completed[0] / total
+                            self.after(0, lambda p=progress: widgets["progress"].set(p))
+                            return None
+                    result = await self.check_item(item, cat, timeout, p, session)
                     completed[0] += 1
 
                     if result:
@@ -418,7 +436,10 @@ class MultiCheckerApp(ctk.CTk):
 
                     return result
 
-            tasks = [check_with_sem(item) for item in data]
+            if tab_name == "All":
+                tasks = [check_with_sem(item, cat) for item in data for cat in all_categories]
+            else:
+                tasks = [check_with_sem(item) for item in data]
             results = await asyncio.gather(*tasks)
 
         self.all_results = [r for r in results if r]
