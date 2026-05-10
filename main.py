@@ -352,6 +352,15 @@ class MultiCheckerApp(ctk.CTk):
                         self.after(0, lambda t=tag, i=inp, m=msg: self.log(
                             widgets, f"[+] [{t}] {i} - {m}"))
 
+                        auth = result.get("info", {}).get("auth")
+                        if auth:
+                            self.after(0, lambda a=auth: self.log(
+                                widgets, f"    ↳ {i18n.t('auth_type')}: {a['auth_type']}"))
+                            self.after(0, lambda a=auth: self.log(
+                                widgets, f"    ↳ {i18n.t('auth_wallets')}: {a['wallets']}"))
+                            self.after(0, lambda a=auth: self.log(
+                                widgets, f"    ↳ {i18n.t('auth_how')}: {a['how']}"))
+
                         linked = result.get("info", {}).get("linked_services", [])
                         if linked:
                             svc_names = ", ".join(s["service"] for s in linked)

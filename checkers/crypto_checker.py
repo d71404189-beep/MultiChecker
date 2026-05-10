@@ -21,6 +21,59 @@ class CryptoChecker(BaseChecker):
         }
         self.exchanges = ["binance", "bybit", "okx", "huobi", "kucoin", "gate", "mexc", "bitget"]
 
+        self.auth_info = {
+            "bitcoin": {
+                "auth_type": "Приватный ключ / Seed-фраза",
+                "wallets": "Electrum, Exodus, Trust Wallet, Ledger",
+                "how": "Импортируй приватный ключ или seed-фразу в кошелёк (Electrum / Exodus / Trust Wallet)",
+            },
+            "ethereum": {
+                "auth_type": "Приватный ключ / Seed-фраза / Keystore",
+                "wallets": "MetaMask, Trust Wallet, Rabby, Ledger",
+                "how": "Импортируй приватный ключ в MetaMask (Настройки → Импорт аккаунта)",
+            },
+            "solana": {
+                "auth_type": "Приватный ключ / Seed-фраза",
+                "wallets": "Phantom, Solflare, Backpack",
+                "how": "Установи Phantom (phantom.app), выбери 'Импортировать приватный ключ' и вставь ключ",
+            },
+            "tron": {
+                "auth_type": "Приватный ключ / Seed-фраза",
+                "wallets": "TronLink, Trust Wallet, Ledger",
+                "how": "Установи TronLink, выбери 'Импорт кошелька' и вставь приватный ключ",
+            },
+            "litecoin": {
+                "auth_type": "Приватный ключ / Seed-фраза",
+                "wallets": "Electrum-LTC, Exodus, Trust Wallet",
+                "how": "Импортируй приватный ключ в Electrum-LTC или Exodus",
+            },
+            "dash": {
+                "auth_type": "Приватный ключ / Seed-фраза",
+                "wallets": "Dash Core, Exodus, Trust Wallet",
+                "how": "Импортируй приватный ключ в Dash Core (Консоль: importprivkey <ключ>)",
+            },
+            "monero": {
+                "auth_type": "Seed-фраза (25 слов) / Приватные ключи (spend + view)",
+                "wallets": "Monero GUI, Cake Wallet, Feather Wallet",
+                "how": "В Monero GUI выбери 'Восстановить кошелёк из seed' и введи 25 слов",
+            },
+            "ripple": {
+                "auth_type": "Приватный ключ / Seed-фраза / Family Seed",
+                "wallets": "XUMM (Xaman), Trust Wallet, Ledger",
+                "how": "Установи XUMM, выбери 'Импорт' и введи Family Seed или мнемоническую фразу",
+            },
+            "dogecoin": {
+                "auth_type": "Приватный ключ / Seed-фраза",
+                "wallets": "Dogecoin Core, Exodus, Trust Wallet",
+                "how": "Импортируй приватный ключ в Exodus или Dogecoin Core",
+            },
+            "bnb": {
+                "auth_type": "Приватный ключ / Seed-фраза",
+                "wallets": "Trust Wallet, MetaMask (BSC), Binance Chain Wallet",
+                "how": "Импортируй seed-фразу в Trust Wallet или добавь BSC сеть в MetaMask",
+            },
+        }
+
     async def check(self, data: str, timeout: int = 10, proxy: str = None, session: aiohttp.ClientSession = None) -> dict:
         result = self.make_result(input=data, type="unknown")
 
@@ -49,6 +102,8 @@ class CryptoChecker(BaseChecker):
 
                 if handler:
                     result = await handler(data, timeout, proxy, session)
+                    if result.get("exists") and wallet_type in self.auth_info:
+                        result["info"]["auth"] = self.auth_info[wallet_type]
                 else:
                     result["info"]["error"] = f"No checker for {wallet_type}"
             finally:
