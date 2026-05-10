@@ -6,6 +6,60 @@ from checkers.base_checker import BaseChecker
 
 
 class AIChecker(BaseChecker):
+    def __init__(self):
+        self.auth_info = {
+            "chatgpt": {
+                "auth_type": "Email + Пароль / Google / Microsoft / Apple",
+                "wallets": "Web (chat.openai.com), ChatGPT App",
+                "how": "Открой chat.openai.com, войди через email/пароль или Google/Microsoft/Apple",
+            },
+            "gemini": {
+                "auth_type": "Google аккаунт (Email + Пароль)",
+                "wallets": "Web (gemini.google.com), Google App",
+                "how": "Открой gemini.google.com, войди через Google аккаунт",
+            },
+            "claude": {
+                "auth_type": "Email + Пароль / Google",
+                "wallets": "Web (claude.ai), Claude App",
+                "how": "Открой claude.ai, войди через email/пароль или Google аккаунт",
+            },
+            "midjourney": {
+                "auth_type": "Discord аккаунт",
+                "wallets": "Discord, Web (midjourney.com)",
+                "how": "Войди в Discord, присоединись к серверу Midjourney или используй midjourney.com",
+            },
+            "character_ai": {
+                "auth_type": "Email + Пароль / Google",
+                "wallets": "Web (character.ai), Character AI App",
+                "how": "Открой character.ai, войди через email/пароль или Google аккаунт",
+            },
+            "perplexity": {
+                "auth_type": "Email + Пароль / Google / Apple",
+                "wallets": "Web (perplexity.ai), Perplexity App",
+                "how": "Открой perplexity.ai, войди через email, Google или Apple",
+            },
+            "huggingface": {
+                "auth_type": "Логин + Пароль / Google / GitHub",
+                "wallets": "Web (huggingface.co)",
+                "how": "Открой huggingface.co, войди через логин/пароль, Google или GitHub",
+            },
+            "replicate": {
+                "auth_type": "GitHub аккаунт",
+                "wallets": "Web (replicate.com)",
+                "how": "Открой replicate.com, войди через GitHub аккаунт",
+            },
+            "stable_diffusion": {
+                "auth_type": "Email + Пароль / Google / GitHub",
+                "wallets": "Web (civitai.com), ComfyUI, Automatic1111",
+                "how": "Открой civitai.com, войди через email/пароль. Для локального: установи ComfyUI",
+            },
+            "devin": {
+                "auth_type": "Email + Пароль / Google / GitHub",
+                "wallets": "Web (app.devin.ai)",
+                "how": "Открой app.devin.ai, войди через email, Google или GitHub",
+            },
+        }
+
     SERVICES = {
         "chatgpt": "ChatGPT/OpenAI",
         "gemini": "Google Gemini",
@@ -49,6 +103,8 @@ class AIChecker(BaseChecker):
 
             if handler:
                 result = await handler(data, timeout, proxy, session)
+                if result.get("exists") and detected in self.auth_info:
+                    result["info"]["auth"] = self.auth_info[detected]
             else:
                 result["info"]["error"] = f"No checker for {detected}"
         finally:
