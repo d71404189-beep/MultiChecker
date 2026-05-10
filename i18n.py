@@ -32,6 +32,7 @@ LANG = {
         "total": "Total",
         "checking": "Checking...",
         "file_loaded": "Loaded {} lines from file",
+        "linked": "Linked services",
     },
     "ru": {
         "title": "Multi Checker Pro",
@@ -66,6 +67,7 @@ LANG = {
         "total": "Всего",
         "checking": "Проверка...",
         "file_loaded": "Загружено {} строк из файла",
+        "linked": "Привязанные сервисы",
     }
 }
 

@@ -352,6 +352,15 @@ class MultiCheckerApp(ctk.CTk):
                         self.after(0, lambda t=tag, i=inp, m=msg: self.log(
                             widgets, f"[+] [{t}] {i} - {m}"))
 
+                        linked = result.get("info", {}).get("linked_services", [])
+                        if linked:
+                            svc_names = ", ".join(s["service"] for s in linked)
+                            self.after(0, lambda i=inp, s=svc_names: self.log(
+                                widgets, f"    ↳ {i18n.t('linked')}: {s}"))
+                            for svc in linked:
+                                self.after(0, lambda n=svc["service"], m2=svc.get("message", ""): self.log(
+                                    widgets, f"      • {n}: {m2}"))
+
                     return result
 
             tasks = [check_with_sem(item) for item in data]
@@ -369,19 +378,62 @@ class MultiCheckerApp(ctk.CTk):
     async def check_item(self, data_item, tab_name, timeout, proxy, session):
         checker = self.checkers.get(tab_name)
         try:
-            if tab_name == "Email":
-                return await checker.check(data_item, timeout=timeout, proxy=proxy, session=session)
-            elif tab_name == "Social":
-                return await checker.check(data_item, timeout=timeout, proxy=proxy, session=session)
-            elif tab_name == "Crypto":
-                return await checker.check(data_item, timeout=timeout, proxy=proxy, session=session)
-            elif tab_name == "Games":
-                return await checker.check(data_item, timeout=timeout, proxy=proxy, session=session)
-            elif tab_name == "AI":
-                return await checker.check(data_item, timeout=timeout, proxy=proxy, session=session)
+            result = await checker.check(data_item, timeout=timeout, proxy=proxy, session=session)
+            if tab_name == "Email" and result.get("exists"):
+                linked = await self._cross_check_email(data_item, timeout, proxy, session)
+                result["info"]["linked_services"] = linked
+            return result
         except Exception as e:
             return {"input": data_item, "error": str(e), "exists": False, "info": {"error": str(e)}}
         return {"input": data_item, "exists": False, "info": {}}
+
+    async def _cross_check_email(self, email, timeout, proxy, session):
+        linked = []
+        username = email.split("@")[0]
+
+        ai_checks = [
+            ("chatgpt", self.checkers["AI"]._check_openai, email),
+            ("gemini", self.checkers["AI"]._check_gemini, email),
+            ("perplexity", self.checkers["AI"]._check_perplexity, email),
+            ("claude", self.checkers["AI"]._check_claude, email),
+        ]
+
+        social_checks = [
+            ("github", self.checkers["Social"]._check_github, username),
+            ("instagram", self.checkers["Social"]._check_instagram, username),
+            ("twitter", self.checkers["Social"]._check_twitter, username),
+            ("tiktok", self.checkers["Social"]._check_tiktok, username),
+            ("reddit", self.checkers["Social"]._check_reddit, username),
+            ("vk", self.checkers["Social"]._check_vk, username),
+            ("telegram", self.checkers["Social"]._check_telegram, username),
+        ]
+
+        game_checks = [
+            ("steam", self.checkers["Games"]._check_steam, username),
+            ("epic", self.checkers["Games"]._check_epic, username),
+            ("xbox", self.checkers["Games"]._check_xbox, username),
+            ("playstation", self.checkers["Games"]._check_playstation, username),
+        ]
+
+        all_checks = ai_checks + social_checks + game_checks
+
+        async def _run_check(name, handler, data):
+            try:
+                r = await handler(data, timeout, proxy, session)
+                if r.get("exists"):
+                    return {"service": name, "found": True, "message": r.get("info", {}).get("message", "")}
+            except Exception:
+                pass
+            return None
+
+        tasks = [_run_check(name, handler, data) for name, handler, data in all_checks]
+        results = await asyncio.gather(*tasks)
+
+        for r in results:
+            if r:
+                linked.append(r)
+
+        return linked
 
     def _update_counters(self, widgets, valid, invalid, errors, total):
         widgets["cnt_valid"].configure(text=f"{i18n.t('valid')}: {valid}")
