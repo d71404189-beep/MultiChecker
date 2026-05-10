@@ -1,5 +1,5 @@
 import customtkinter as ctk
-from tkinter import filedialog
+from tkinter import filedialog, Canvas
 import asyncio
 import aiohttp
 import csv
@@ -34,6 +34,7 @@ class MultiCheckerApp(ctk.CTk):
         self.is_running = False
         self.results = []
         self.all_results = []
+        self._platform_stats = {}
 
         self.checkers = {
             "Email": EmailChecker(),
@@ -95,8 +96,15 @@ class MultiCheckerApp(ctk.CTk):
                 widget.configure(text=text)
             except Exception:
                 pass
+        filter_labels = [i18n.t("filter_all"), i18n.t("filter_valid"),
+                         i18n.t("filter_invalid"), i18n.t("filter_errors")]
+        filter_keys = ["all", "valid", "invalid", "error"]
         for tab_name, widgets in self.tab_widgets.items():
             widgets["status"].configure(text=i18n.t("ready"))
+            widgets["filter_seg"].configure(values=filter_labels)
+            current = widgets.get("_filter", "all")
+            idx = filter_keys.index(current) if current in filter_keys else 0
+            widgets["filter_seg"].set(filter_labels[idx])
 
     def create_tab_content(self, frame, tab_name):
         widgets = {}
@@ -197,6 +205,27 @@ class MultiCheckerApp(ctk.CTk):
                                              font=("Arial", 12, "bold"))
         widgets["cnt_total"].pack(side="left", padx=15)
 
+        filter_frame = ctk.CTkFrame(frame)
+        filter_frame.pack(pady=3, padx=10, fill="x")
+
+        widgets["_log_lines"] = []
+        widgets["_filter"] = "all"
+
+        widgets["filter_seg"] = ctk.CTkSegmentedButton(
+            filter_frame,
+            values=[i18n.t("filter_all"), i18n.t("filter_valid"),
+                    i18n.t("filter_invalid"), i18n.t("filter_errors")],
+            command=lambda v: self._on_filter(widgets, v)
+        )
+        widgets["filter_seg"].set(i18n.t("filter_all"))
+        widgets["filter_seg"].pack(side="left", padx=5)
+
+        stats_btn = ctk.CTkButton(filter_frame, text=i18n.t("stats"),
+                                   command=lambda: self.show_stats(tab_name),
+                                   fg_color="#6c5ce7", hover_color="#5a4bd1", width=100)
+        stats_btn.pack(side="right", padx=5)
+        self._translatable.append((stats_btn, "stats", None))
+
         widgets["status"] = ctk.CTkLabel(frame, text=i18n.t("ready"), font=("Arial", 12))
         widgets["status"].pack(pady=2)
 
@@ -271,6 +300,10 @@ class MultiCheckerApp(ctk.CTk):
         data = [self._normalize_input_line(d, tab_name) for d in raw_data if d.strip()]
         data = [d for d in data if d]
 
+        original_count = len(data)
+        data = list(dict.fromkeys(data))
+        dupes_removed = original_count - len(data)
+
         if not data:
             self.log(widgets, i18n.t("no_data"))
             return
@@ -282,9 +315,16 @@ class MultiCheckerApp(ctk.CTk):
         self.is_running = True
         self.results = []
         self.all_results = []
+        self._platform_stats = {}
+        widgets["_log_lines"] = []
+        widgets["_filter"] = "all"
+        widgets["filter_seg"].set(i18n.t("filter_all"))
 
         self._update_counters(widgets, 0, 0, 0, 0)
+        widgets["output"].delete("1.0", "end")
         widgets["status"].configure(text=i18n.t("checking"))
+        if dupes_removed > 0:
+            self.log(widgets, i18n.t("duplicates_removed").format(dupes_removed))
         self.log(widgets, i18n.t("starting").format(len(data), threads))
         widgets["progress"].set(0)
 
@@ -333,42 +373,48 @@ class MultiCheckerApp(ctk.CTk):
                     completed[0] += 1
 
                     if result:
+                        tag = result.get("platform", result.get("service", result.get("wallet_type", "")))
+                        inp = result.get("input", result.get("email", ""))
+
                         if result.get("info", {}).get("error"):
                             error_count[0] += 1
+                            err_msg = result.get("info", {}).get("error", "")
+                            self.after(0, lambda t=tag, i=inp, m=err_msg: self.log_tagged(
+                                widgets, "error", f"[!] [{t}] {i} - {m}"))
                         elif result.get("exists"):
                             valid_count[0] += 1
+                            self._platform_stats[tag] = self._platform_stats.get(tag, 0) + 1
+                            msg = result.get("info", {}).get("message", "")
+                            self.after(0, lambda t=tag, i=inp, m=msg: self.log_tagged(
+                                widgets, "valid", f"[+] [{t}] {i} - {m}"))
+
+                            auth = result.get("info", {}).get("auth")
+                            if auth:
+                                self.after(0, lambda a=auth: self.log_tagged(
+                                    widgets, "valid", f"    ↳ {i18n.t('auth_type')}: {a['auth_type']}"))
+                                self.after(0, lambda a=auth: self.log_tagged(
+                                    widgets, "valid", f"    ↳ {i18n.t('auth_wallets')}: {a['wallets']}"))
+                                self.after(0, lambda a=auth: self.log_tagged(
+                                    widgets, "valid", f"    ↳ {i18n.t('auth_how')}: {a['how']}"))
+
+                            linked = result.get("info", {}).get("linked_services", [])
+                            if linked:
+                                svc_names = ", ".join(s["service"] for s in linked)
+                                self.after(0, lambda i=inp, s=svc_names: self.log_tagged(
+                                    widgets, "valid", f"    ↳ {i18n.t('linked')}: {s}"))
+                                for svc in linked:
+                                    self.after(0, lambda n=svc["service"], m2=svc.get("message", ""): self.log_tagged(
+                                        widgets, "valid", f"      • {n}: {m2}"))
                         else:
                             invalid_count[0] += 1
+                            msg = result.get("info", {}).get("message", "Not found")
+                            self.after(0, lambda t=tag, i=inp, m=msg: self.log_tagged(
+                                widgets, "invalid", f"[-] [{t}] {i} - {m}"))
 
                     progress = completed[0] / total
                     v, inv, err, comp = valid_count[0], invalid_count[0], error_count[0], completed[0]
                     self.after(0, lambda p=progress: widgets["progress"].set(p))
                     self.after(0, lambda: self._update_counters(widgets, v, inv, err, comp))
-
-                    if result and result.get("exists"):
-                        tag = result.get("platform", result.get("service", result.get("wallet_type", "")))
-                        inp = result.get("input", result.get("email", ""))
-                        msg = result.get("info", {}).get("message", "")
-                        self.after(0, lambda t=tag, i=inp, m=msg: self.log(
-                            widgets, f"[+] [{t}] {i} - {m}"))
-
-                        auth = result.get("info", {}).get("auth")
-                        if auth:
-                            self.after(0, lambda a=auth: self.log(
-                                widgets, f"    ↳ {i18n.t('auth_type')}: {a['auth_type']}"))
-                            self.after(0, lambda a=auth: self.log(
-                                widgets, f"    ↳ {i18n.t('auth_wallets')}: {a['wallets']}"))
-                            self.after(0, lambda a=auth: self.log(
-                                widgets, f"    ↳ {i18n.t('auth_how')}: {a['how']}"))
-
-                        linked = result.get("info", {}).get("linked_services", [])
-                        if linked:
-                            svc_names = ", ".join(s["service"] for s in linked)
-                            self.after(0, lambda i=inp, s=svc_names: self.log(
-                                widgets, f"    ↳ {i18n.t('linked')}: {s}"))
-                            for svc in linked:
-                                self.after(0, lambda n=svc["service"], m2=svc.get("message", ""): self.log(
-                                    widgets, f"      • {n}: {m2}"))
 
                     return result
 
@@ -450,6 +496,90 @@ class MultiCheckerApp(ctk.CTk):
         widgets["cnt_errors"].configure(text=f"{i18n.t('errors')}: {errors}")
         widgets["cnt_total"].configure(text=f"{i18n.t('total')}: {total}")
 
+    def log_tagged(self, widgets, tag, message):
+        widgets.setdefault("_log_lines", []).append((tag, message))
+        current_filter = widgets.get("_filter", "all")
+        if current_filter == "all" or current_filter == tag:
+            self._log_safe(widgets, message)
+
+    def _on_filter(self, widgets, value):
+        mapping = {
+            i18n.t("filter_all"): "all",
+            i18n.t("filter_valid"): "valid",
+            i18n.t("filter_invalid"): "invalid",
+            i18n.t("filter_errors"): "error",
+        }
+        self.apply_filter(widgets, mapping.get(value, "all"))
+
+    def apply_filter(self, widgets, filter_type):
+        widgets["_filter"] = filter_type
+        widgets["output"].delete("1.0", "end")
+        for tag, line in widgets.get("_log_lines", []):
+            if filter_type == "all" or tag == filter_type or tag == "system":
+                self._log_safe(widgets, line)
+
+    def show_stats(self, tab_name):
+        widgets = self.tab_widgets[tab_name]
+
+        if not self.all_results:
+            self.log(widgets, i18n.t("stats_no_data"))
+            return
+
+        win = ctk.CTkToplevel(self)
+        win.title(i18n.t("stats_title"))
+        win.geometry("500x450")
+        win.attributes("-topmost", True)
+
+        valid = len([r for r in self.all_results if r.get("exists")])
+        errors = len([r for r in self.all_results if r.get("info", {}).get("error")])
+        invalid = len(self.all_results) - valid - errors
+        total = len(self.all_results)
+
+        summary_frame = ctk.CTkFrame(win)
+        summary_frame.pack(pady=10, padx=15, fill="x")
+
+        ctk.CTkLabel(summary_frame, text=i18n.t("stats_summary"),
+                      font=("Arial", 16, "bold")).pack(pady=5)
+
+        canvas = Canvas(summary_frame, width=460, height=130, bg="#2b2b2b",
+                         highlightthickness=0, bd=0)
+        canvas.pack(pady=5, padx=10)
+
+        max_val = max(valid, invalid, errors, 1)
+        bar_max_w = 300
+
+        bars = [
+            (i18n.t("valid"), valid, "#2fa572", 10),
+            (i18n.t("invalid"), invalid, "#c93c3c", 50),
+            (i18n.t("errors"), errors, "#d4a017", 90),
+        ]
+
+        for label, count, color, y in bars:
+            w = int((count / max_val) * bar_max_w) if max_val > 0 else 0
+            canvas.create_rectangle(120, y, 120 + max(w, 2), y + 25,
+                                     fill=color, outline="")
+            pct = f"{count * 100 // total}%" if total > 0 else "0%"
+            canvas.create_text(10, y + 12, text=f"{label}: {count}",
+                                anchor="w", fill="white", font=("Arial", 11))
+            canvas.create_text(440, y + 12, text=pct, anchor="w",
+                                fill="white", font=("Arial", 11, "bold"))
+
+        platform_frame = ctk.CTkFrame(win)
+        platform_frame.pack(pady=10, padx=15, fill="both", expand=True)
+
+        ctk.CTkLabel(platform_frame, text=i18n.t("stats_by_platform"),
+                      font=("Arial", 14, "bold")).pack(pady=5)
+
+        scroll = ctk.CTkScrollableFrame(platform_frame, height=180)
+        scroll.pack(fill="both", expand=True, padx=5, pady=5)
+
+        for platform, count in sorted(self._platform_stats.items(), key=lambda x: -x[1]):
+            ctk.CTkLabel(scroll, text=f"  {platform}: {count} {i18n.t('stats_found')}",
+                          font=("Arial", 12), anchor="w").pack(fill="x", padx=10, pady=1)
+
+        if not self._platform_stats:
+            ctk.CTkLabel(scroll, text="  —", font=("Arial", 12)).pack()
+
     def stop_check(self):
         self.is_running = False
 
@@ -457,6 +587,9 @@ class MultiCheckerApp(ctk.CTk):
         widgets["output"].delete("1.0", "end")
         widgets["progress"].set(0)
         self._update_counters(widgets, 0, 0, 0, 0)
+        widgets["_log_lines"] = []
+        widgets["_filter"] = "all"
+        widgets["filter_seg"].set(i18n.t("filter_all"))
 
     def export_results(self, widgets, fmt="txt"):
         if not self.results:
@@ -489,6 +622,7 @@ class MultiCheckerApp(ctk.CTk):
             self.log(widgets, f"Export error: {e}")
 
     def log(self, widgets, message):
+        widgets.setdefault("_log_lines", []).append(("system", message))
         self.after(0, lambda: self._log_safe(widgets, message))
 
     def _log_safe(self, widgets, message):

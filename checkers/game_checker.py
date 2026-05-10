@@ -7,6 +7,53 @@ from checkers.base_checker import BaseChecker
 
 class GameChecker(BaseChecker):
     def __init__(self):
+        self.auth_info = {
+            "steam": {
+                "auth_type": "Логин + Пароль + Steam Guard",
+                "wallets": "Steam Client, Steam Web (store.steampowered.com)",
+                "how": "Скачай Steam (store.steampowered.com), войди через логин/пароль, подтверди через Steam Guard",
+            },
+            "epic": {
+                "auth_type": "Email + Пароль / Google / Apple / PSN / Xbox",
+                "wallets": "Epic Games Launcher, Web (epicgames.com)",
+                "how": "Скачай Epic Games Launcher, войди через email/пароль или привязанный аккаунт",
+            },
+            "rockstar": {
+                "auth_type": "Email + Пароль",
+                "wallets": "Rockstar Games Launcher, Web (socialclub.rockstargames.com)",
+                "how": "Открой socialclub.rockstargames.com, войди через email и пароль",
+            },
+            "origin": {
+                "auth_type": "Email + Пароль",
+                "wallets": "EA App, Web (ea.com)",
+                "how": "Скачай EA App (замена Origin), войди через email и пароль",
+            },
+            "ubisoft": {
+                "auth_type": "Email + Пароль",
+                "wallets": "Ubisoft Connect, Web (ubisoft.com)",
+                "how": "Скачай Ubisoft Connect, войди через email и пароль",
+            },
+            "riot": {
+                "auth_type": "Riot ID + Пароль / Google / Facebook / Apple",
+                "wallets": "Riot Client, Web (account.riotgames.com)",
+                "how": "Скачай Riot Client (Valorant/LoL), войди через Riot ID и пароль",
+            },
+            "blizzard": {
+                "auth_type": "Email + Пароль + Authenticator",
+                "wallets": "Battle.net Launcher, Web (battle.net)",
+                "how": "Скачай Battle.net, войди через email/пароль, подтверди через Authenticator",
+            },
+            "xbox": {
+                "auth_type": "Microsoft аккаунт (Email + Пароль)",
+                "wallets": "Xbox App, Web (xbox.com), Microsoft Store",
+                "how": "Открой xbox.com, войди через Microsoft аккаунт (email и пароль)",
+            },
+            "playstation": {
+                "auth_type": "Email + Пароль + 2FA",
+                "wallets": "PlayStation App, PS Console, Web (playstation.com)",
+                "how": "Открой playstation.com, войди через email и пароль, подтверди 2FA",
+            },
+        }
         self.games = {
             "steam": {"name": "Steam", "pattern": r'^7656119[0-9]{10}$'},
             "epic": {"name": "Epic Games", "pattern": r'^[a-zA-Z0-9_-]{3,}$'},
@@ -44,6 +91,8 @@ class GameChecker(BaseChecker):
 
             if handler:
                 result = await handler(data, timeout, proxy, session)
+                if result.get("exists") and detected in self.auth_info:
+                    result["info"]["auth"] = self.auth_info[detected]
             else:
                 result["info"]["error"] = f"No checker for {detected}"
         finally:

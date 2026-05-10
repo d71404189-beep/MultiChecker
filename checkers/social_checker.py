@@ -6,6 +6,55 @@ from checkers.base_checker import BaseChecker
 
 
 class SocialChecker(BaseChecker):
+    def __init__(self):
+        self.auth_info = {
+            "telegram": {
+                "auth_type": "Номер телефона / QR-код",
+                "wallets": "Telegram Desktop, Telegram Web, Telegram iOS/Android",
+                "how": "Открой telegram.org, установи приложение, войди через номер телефона или QR-код",
+            },
+            "discord": {
+                "auth_type": "Email + Пароль / Токен",
+                "wallets": "Discord App, Discord Web (discord.com)",
+                "how": "Открой discord.com, войди через email и пароль",
+            },
+            "instagram": {
+                "auth_type": "Логин + Пароль / Facebook",
+                "wallets": "Instagram App, Web (instagram.com)",
+                "how": "Открой instagram.com, войди через логин/пароль или через аккаунт Facebook",
+            },
+            "twitter": {
+                "auth_type": "Логин + Пароль / Google / Apple",
+                "wallets": "X App, Web (x.com)",
+                "how": "Открой x.com, войди через логин/пароль, Google или Apple ID",
+            },
+            "facebook": {
+                "auth_type": "Email/Телефон + Пароль",
+                "wallets": "Facebook App, Web (facebook.com)",
+                "how": "Открой facebook.com, войди через email/телефон и пароль",
+            },
+            "tiktok": {
+                "auth_type": "Телефон / Email / Google / Apple",
+                "wallets": "TikTok App, Web (tiktok.com)",
+                "how": "Открой tiktok.com, войди через телефон, email, Google или Apple ID",
+            },
+            "reddit": {
+                "auth_type": "Логин + Пароль / Google / Apple",
+                "wallets": "Reddit App, Web (reddit.com)",
+                "how": "Открой reddit.com, войди через логин/пароль, Google или Apple ID",
+            },
+            "github": {
+                "auth_type": "Логин + Пароль / SSH ключ",
+                "wallets": "GitHub Desktop, Web (github.com), CLI (gh)",
+                "how": "Открой github.com, войди через логин/пароль. Для CLI: gh auth login",
+            },
+            "vk": {
+                "auth_type": "Телефон + Пароль / VK ID",
+                "wallets": "VK App, Web (vk.com), VK Мессенджер",
+                "how": "Открой vk.com, войди через номер телефона и пароль или VK ID",
+            },
+        }
+
     PLATFORMS = {
         "telegram": {"url": "https://t.me/", "param": "username"},
         "discord": {"url": "https://discord.com/api/v10/users/", "param": "id"},
@@ -47,6 +96,8 @@ class SocialChecker(BaseChecker):
 
             if handler:
                 result = await handler(data, timeout, proxy, session)
+                if result.get("exists") and detected_platform in self.auth_info:
+                    result["info"]["auth"] = self.auth_info[detected_platform]
             else:
                 result["info"]["error"] = f"No checker for {detected_platform}"
         finally:
