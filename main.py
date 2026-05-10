@@ -138,8 +138,8 @@ class MultiCheckerApp(ctk.CTk):
         proxy_label.pack(side="left", padx=10)
         self._translatable.append((proxy_label, "proxy", None))
 
-        widgets["proxy"] = ctk.CTkEntry(settings_frame, width=150, placeholder_text=i18n.t("proxy_placeholder"))
-        widgets["proxy"].pack(side="left", padx=5)
+        widgets["proxy"] = ctk.CTkEntry(settings_frame, width=300, placeholder_text=i18n.t("proxy_placeholder"))
+        widgets["proxy"].pack(side="left", padx=5, expand=True, fill="x")
 
         btn_frame = ctk.CTkFrame(frame)
         btn_frame.pack(pady=5, padx=10, fill="x")
