@@ -391,22 +391,26 @@ class MultiCheckerApp(ctk.CTk):
     def _prepare_and_check(self, raw_lines, tab_name, threads, timeout, proxy, widgets):
         """Normalize + deduplicate data in background thread, then run checks."""
         try:
-            # Normalize in streaming fashion
-            if tab_name == "All":
-                data_iter = (d.strip() for d in raw_lines if d.strip())
-            else:
-                data_iter = (self._normalize_input_line(d, tab_name) for d in raw_lines if d.strip())
-
-            # Deduplicate using a set for O(1) lookups while preserving order
-            seen = set()
-            data = []
-            for item in data_iter:
-                if item and item not in seen:
-                    seen.add(item)
-                    data.append(item)
-            del seen
-
             original_count = len(raw_lines)
+
+            if tab_name == "Crypto":
+                data = self._fast_crypto_filter(raw_lines, widgets)
+            else:
+                # Normalize in streaming fashion
+                if tab_name == "All":
+                    data_iter = (d.strip() for d in raw_lines if d.strip())
+                else:
+                    data_iter = (self._normalize_input_line(d, tab_name) for d in raw_lines if d.strip())
+
+                # Deduplicate using a set for O(1) lookups while preserving order
+                seen = set()
+                data = []
+                for item in data_iter:
+                    if item and item not in seen:
+                        seen.add(item)
+                        data.append(item)
+                del seen
+
             dupes_removed = original_count - len(data)
 
             if not data:
@@ -430,6 +434,74 @@ class MultiCheckerApp(ctk.CTk):
             self.after(0, lambda: widgets["status"].configure(text=i18n.t("ready")))
         finally:
             self.is_running = False
+
+    def _fast_crypto_filter(self, raw_lines, widgets):
+        """Fast filter for Crypto: scan lines for wallet addresses and exchange URLs."""
+        from checkers.crypto_checker import _WALLET_PATTERNS, _WALLET_FIRST_CHARS
+
+        exchanges = ("binance", "bybit", "okx", "huobi", "kucoin", "gate.io", "mexc", "bitget")
+        seen = set()
+        data = []
+        total = len(raw_lines)
+        report_interval = max(total // 10, 1_000_000)
+
+        for idx, line in enumerate(raw_lines):
+            stripped = line.strip()
+            if not stripped:
+                continue
+
+            if idx % report_interval == 0 and idx > 0:
+                pct = idx * 100 // total
+                self.after(0, lambda p=pct, i=idx, t=total: self.log(
+                    widgets, f"Scanning... {p}% ({i}/{t})"))
+
+            # Extract domain for exchange check (only look at domain, not user/pass)
+            domain = ""
+            if "://" in stripped:
+                after_scheme = stripped.split("://", 1)[1]
+                domain = after_scheme.split("/", 1)[0].split(":", 1)[0].lower()
+            elif "." in stripped.split(":", 1)[0]:
+                domain = stripped.split(":", 1)[0].split("/", 1)[0].lower()
+
+            # Check for exchange in domain only
+            if domain:
+                for ex in exchanges:
+                    if ex in domain:
+                        if stripped not in seen:
+                            seen.add(stripped)
+                            data.append(stripped)
+                        break
+                else:
+                    # Check tokens for wallet addresses
+                    self._scan_line_for_wallets(stripped, _WALLET_FIRST_CHARS, _WALLET_PATTERNS, seen, data)
+            else:
+                self._scan_line_for_wallets(stripped, _WALLET_FIRST_CHARS, _WALLET_PATTERNS, seen, data)
+
+        del seen
+        found = len(data)
+        self.after(0, lambda: self.log(
+            widgets, f"Scan complete: {found} crypto items in {total} lines"))
+        return data
+
+    @staticmethod
+    def _scan_line_for_wallets(line, first_chars, patterns, seen, data):
+        """Scan tokens in a line for crypto wallet addresses."""
+        for token in line.split(":"):
+            if len(token) < 25 or len(token) > 95:
+                continue
+            # Remove URL prefix if present
+            if "/" in token:
+                token = token.rsplit("/", 1)[-1]
+                if len(token) < 25:
+                    continue
+            if token[0] not in first_chars:
+                continue
+            for _, pat in patterns:
+                if pat.match(token):
+                    if token not in seen:
+                        seen.add(token)
+                        data.append(token)
+                    return
 
     async def check_all(self, data, tab_name, threads, timeout, proxy, widgets):
         semaphore = asyncio.Semaphore(threads)
