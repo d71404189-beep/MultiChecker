@@ -4,21 +4,27 @@ import re
 
 from checkers.base_checker import BaseChecker
 
+# Pre-compiled wallet patterns for fast matching
+_WALLET_PATTERNS = [
+    ("bitcoin", re.compile(r'^(bc1|[13])[a-zA-HJ-NP-Z0-9]{25,62}$')),
+    ("ethereum", re.compile(r'^0x[a-fA-F0-9]{40}$')),
+    ("tron", re.compile(r'^T[a-zA-HJ-NP-Z0-9]{33}$')),
+    ("solana", re.compile(r'^[1-9A-HJ-NP-Za-km-z]{32,44}$')),
+    ("litecoin", re.compile(r'^(L|M|ltc1)[a-km-zA-HJ-NP-Z1-9]{26,62}$')),
+    ("dash", re.compile(r'^X[1-9A-HJ-NP-Za-km-z]{24,33}$')),
+    ("monero", re.compile(r'^4[0-9AB][1-9A-HJ-NP-Za-km-z]{93}$')),
+    ("ripple", re.compile(r'^r[1-9A-HJ-NP-Za-km-z]{24,34}$')),
+    ("dogecoin", re.compile(r'^D[5-9A-HJ-NP-U][1-9A-HJ-NP-Za-km-z]{32}$')),
+    ("bnb", re.compile(r'^bnb1[a-z0-9]{38}$')),
+]
+
+# Quick first-char lookup for fast rejection
+_WALLET_FIRST_CHARS = frozenset('bB013456789LMlTXrDd')
+
 
 class CryptoChecker(BaseChecker):
     def __init__(self):
-        self.wallet_patterns = {
-            "bitcoin": r'^(bc1|[13])[a-zA-HJ-NP-Z0-9]{25,62}$',
-            "ethereum": r'^0x[a-fA-F0-9]{40}$',
-            "solana": r'^[1-9A-HJ-NP-Za-km-z]{32,44}$',
-            "litecoin": r'^(L|M|ltc1)[a-km-zA-HJ-NP-Z1-9]{26,62}$',
-            "tron": r'^T[a-zA-HJ-NP-Z0-9]{33}$',
-            "dash": r'^X[1-9A-HJ-NP-Za-km-z]{24,33}$',
-            "monero": r'^4[0-9AB][1-9A-HJ-NP-Za-km-z]{93}$',
-            "ripple": r'^r[1-9A-HJ-NP-Za-km-z]{24,34}$',
-            "dogecoin": r'^D[5-9A-HJ-NP-U][1-9A-HJ-NP-Za-km-z]{32}$',
-            "bnb": r'^bnb1[a-z0-9]{38}$',
-        }
+        self.wallet_patterns = _WALLET_PATTERNS
         self.exchanges = ["binance", "bybit", "okx", "huobi", "kucoin", "gate", "mexc", "bitget"]
 
         self.auth_info = {
@@ -122,8 +128,10 @@ class CryptoChecker(BaseChecker):
 
     def _detect_wallet(self, data: str) -> str:
         data = data.strip()
-        for wallet_type, pattern in self.wallet_patterns.items():
-            if re.match(pattern, data):
+        if not data or data[0] not in _WALLET_FIRST_CHARS:
+            return None
+        for wallet_type, pattern in self.wallet_patterns:
+            if pattern.match(data):
                 return wallet_type
         return None
 

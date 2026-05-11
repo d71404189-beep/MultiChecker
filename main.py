@@ -28,7 +28,7 @@ ctk.set_default_color_theme("blue")
 # Max lines to display in the textbox to keep UI responsive
 _TEXTBOX_DISPLAY_LIMIT = 5000
 # Batch size for asyncio.gather to avoid scheduling millions of coroutines at once
-_GATHER_BATCH_SIZE = 10000
+_GATHER_BATCH_SIZE = 50000
 # Max log lines kept in memory per tab (older entries are dropped)
 _MAX_LOG_LINES = 50000
 
@@ -140,8 +140,8 @@ class MultiCheckerApp(ctk.CTk):
         threads_label.pack(side="left", padx=5)
         self._translatable.append((threads_label, "threads", None))
 
-        widgets["threads"] = ctk.CTkSlider(settings_frame, from_=1, to=200, number_of_steps=199)
-        widgets["threads"].set(50)
+        widgets["threads"] = ctk.CTkSlider(settings_frame, from_=1, to=500, number_of_steps=499)
+        widgets["threads"].set(100)
         widgets["threads"].pack(side="left", padx=5)
 
         timeout_label = ctk.CTkLabel(settings_frame, text=i18n.t("timeout"))
@@ -419,7 +419,13 @@ class MultiCheckerApp(ctk.CTk):
             else:
                 proxies = [proxy]
 
-        connector = aiohttp.TCPConnector(limit=threads, limit_per_host=threads)
+        connector = aiohttp.TCPConnector(
+            limit=threads * 2,
+            limit_per_host=min(threads, 50),
+            ttl_dns_cache=300,
+            enable_cleanup_closed=True,
+            force_close=False,
+        )
 
         async with aiohttp.ClientSession(connector=connector) as session:
             async def check_with_sem(data_item, category=None):
