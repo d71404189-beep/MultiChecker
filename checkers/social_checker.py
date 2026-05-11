@@ -4,6 +4,10 @@ import re
 
 from checkers.base_checker import BaseChecker
 
+_RE_TELEGRAM_AT = re.compile(r'^@[\w\d_]{1,32}$')
+_RE_DISCORD_ID = re.compile(r'^\d{17,20}$')
+_RE_USERNAME = re.compile(r'^[\w\d_.]{1,30}$')
+
 
 class SocialChecker(BaseChecker):
     def __init__(self):
@@ -133,13 +137,13 @@ class SocialChecker(BaseChecker):
         if data_stripped.startswith("t.me/"):
             return "telegram"
 
-        if re.match(r'^@[\w\d_]{1,32}$', data_stripped):
+        if _RE_TELEGRAM_AT.match(data_stripped):
             return "telegram"
 
-        if re.match(r'^\d{17,20}$', data_stripped):
+        if _RE_DISCORD_ID.match(data_stripped):
             return "discord"
 
-        if re.match(r'^[\w\d_.]{1,30}$', data_stripped):
+        if _RE_USERNAME.match(data_stripped):
             return "instagram"
 
         return "instagram"
