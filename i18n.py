@@ -49,6 +49,7 @@ LANG = {
         "stats_no_data": "No data yet. Run a check first!",
         "all_categories": "All",
         "starting_all": "Checking {} items across {} categories ({} total checks) with {} threads...",
+        "preparing_data": "Preparing data (normalizing & deduplicating)...",
     },
     "ru": {
         "title": "Multi Checker Pro",
@@ -100,6 +101,7 @@ LANG = {
         "stats_no_data": "Нет данных. Сначала запусти проверку!",
         "all_categories": "Все",
         "starting_all": "Проверка {} элементов по {} категориям ({} проверок) с {} потоками...",
+        "preparing_data": "Подготовка данных (нормализация и дедупликация)...",
     }
 }
 
