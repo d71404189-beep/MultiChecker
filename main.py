@@ -6,13 +6,19 @@ import csv
 import io
 import json
 import os
+import platform
 import re
 import sys
 import threading
+import traceback
 from datetime import datetime
 from urllib.parse import urlparse
 
 sys.path.insert(0, os.path.dirname(__file__))
+
+# Fix for Windows: aiohttp requires SelectorEventLoop, not Proactor
+if platform.system() == "Windows":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 from checkers.email_checker import EmailChecker
 from checkers.social_checker import SocialChecker
@@ -393,9 +399,15 @@ class MultiCheckerApp(ctk.CTk):
         thread.start()
 
     def run_async_check(self, data, tab_name, threads, timeout, proxy, widgets):
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(self.check_all(data, tab_name, threads, timeout, proxy, widgets))
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(self.check_all(data, tab_name, threads, timeout, proxy, widgets))
+        except Exception as e:
+            self.after(0, lambda: self.log(widgets, f"Error: {e}"))
+            self.after(0, lambda: widgets["status"].configure(text=i18n.t("ready")))
+        finally:
+            self.is_running = False
 
     async def check_all(self, data, tab_name, threads, timeout, proxy, widgets):
         semaphore = asyncio.Semaphore(threads)
@@ -423,7 +435,6 @@ class MultiCheckerApp(ctk.CTk):
             limit=threads * 2,
             limit_per_host=min(threads, 50),
             ttl_dns_cache=300,
-            enable_cleanup_closed=True,
             force_close=False,
         )
 
