@@ -6,13 +6,19 @@ import csv
 import io
 import json
 import os
+import platform
 import re
 import sys
 import threading
+import traceback
 from datetime import datetime
 from urllib.parse import urlparse
 
 sys.path.insert(0, os.path.dirname(__file__))
+
+# Fix for Windows: aiohttp requires SelectorEventLoop, not Proactor
+if platform.system() == "Windows":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 from checkers.email_checker import EmailChecker
 from checkers.social_checker import SocialChecker
@@ -299,6 +305,10 @@ class MultiCheckerApp(ctk.CTk):
         if not raw:
             return ""
 
+        # Fast path for Crypto: if it looks like a plain wallet address, skip all parsing
+        if tab_name == "Crypto" and ":" not in raw and "/" not in raw and "|" not in raw:
+            return raw
+
         email_match = re.search(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}", raw)
         if tab_name == "Email" and email_match:
             return email_match.group(0)
@@ -339,25 +349,7 @@ class MultiCheckerApp(ctk.CTk):
             raw_text = widgets["input"].get("1.0", "end").strip()
             raw_lines = raw_text.split("\n")
 
-        # Normalize in streaming fashion to avoid duplicating the list
-        if tab_name == "All":
-            data_iter = (d.strip() for d in raw_lines if d.strip())
-        else:
-            data_iter = (self._normalize_input_line(d, tab_name) for d in raw_lines if d.strip())
-
-        # Deduplicate using a set for O(1) lookups while preserving order
-        seen = set()
-        data = []
-        for item in data_iter:
-            if item and item not in seen:
-                seen.add(item)
-                data.append(item)
-        del seen  # free memory
-
-        original_count = len(raw_lines)
-        dupes_removed = original_count - len(data)
-
-        if not data:
+        if not raw_lines or (len(raw_lines) == 1 and not raw_lines[0].strip()):
             self.log(widgets, i18n.t("no_data"))
             return
 
@@ -376,26 +368,58 @@ class MultiCheckerApp(ctk.CTk):
         self._update_counters(widgets, 0, 0, 0, 0)
         widgets["output"].delete("1.0", "end")
         widgets["status"].configure(text=i18n.t("checking"))
-        if dupes_removed > 0:
-            self.log(widgets, i18n.t("duplicates_removed").format(dupes_removed))
-        if tab_name == "All":
-            cats = 5
-            self.log(widgets, i18n.t("starting_all").format(len(data), cats, len(data) * cats, threads))
-        else:
-            self.log(widgets, i18n.t("starting").format(len(data), threads))
         widgets["progress"].set(0)
+        self.log(widgets, i18n.t("preparing_data"))
 
         thread = threading.Thread(
-            target=self.run_async_check,
-            args=(data, tab_name, threads, timeout, proxy, widgets),
+            target=self._prepare_and_check,
+            args=(raw_lines, tab_name, threads, timeout, proxy, widgets),
             daemon=True,
         )
         thread.start()
 
-    def run_async_check(self, data, tab_name, threads, timeout, proxy, widgets):
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(self.check_all(data, tab_name, threads, timeout, proxy, widgets))
+    def _prepare_and_check(self, raw_lines, tab_name, threads, timeout, proxy, widgets):
+        """Normalize + deduplicate data in background thread, then run checks."""
+        try:
+            # Normalize in streaming fashion
+            if tab_name == "All":
+                data_iter = (d.strip() for d in raw_lines if d.strip())
+            else:
+                data_iter = (self._normalize_input_line(d, tab_name) for d in raw_lines if d.strip())
+
+            # Deduplicate using a set for O(1) lookups while preserving order
+            seen = set()
+            data = []
+            for item in data_iter:
+                if item and item not in seen:
+                    seen.add(item)
+                    data.append(item)
+            del seen
+
+            original_count = len(raw_lines)
+            dupes_removed = original_count - len(data)
+
+            if not data:
+                self.after(0, lambda: self.log(widgets, i18n.t("no_data")))
+                self.after(0, lambda: widgets["status"].configure(text=i18n.t("ready")))
+                return
+
+            if dupes_removed > 0:
+                self.after(0, lambda: self.log(widgets, i18n.t("duplicates_removed").format(dupes_removed)))
+            if tab_name == "All":
+                cats = 5
+                self.after(0, lambda: self.log(widgets, i18n.t("starting_all").format(len(data), cats, len(data) * cats, threads)))
+            else:
+                self.after(0, lambda: self.log(widgets, i18n.t("starting").format(len(data), threads)))
+
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(self.check_all(data, tab_name, threads, timeout, proxy, widgets))
+        except Exception as e:
+            self.after(0, lambda: self.log(widgets, f"Error: {e}"))
+            self.after(0, lambda: widgets["status"].configure(text=i18n.t("ready")))
+        finally:
+            self.is_running = False
 
     async def check_all(self, data, tab_name, threads, timeout, proxy, widgets):
         semaphore = asyncio.Semaphore(threads)
@@ -423,7 +447,6 @@ class MultiCheckerApp(ctk.CTk):
             limit=threads * 2,
             limit_per_host=min(threads, 50),
             ttl_dns_cache=300,
-            enable_cleanup_closed=True,
             force_close=False,
         )
 
