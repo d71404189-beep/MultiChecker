@@ -305,24 +305,34 @@ class MultiCheckerApp(ctk.CTk):
         if not raw:
             return ""
 
+        try:
+            return self._do_normalize(raw, tab_name)
+        except Exception:
+            return raw
+
+    def _do_normalize(self, raw, tab_name):
         # Fast path for Crypto: if it looks like a plain wallet address, skip all parsing
         if tab_name == "Crypto" and ":" not in raw and "/" not in raw and "|" not in raw:
             return raw
 
-        email_match = re.search(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}", raw)
-        if tab_name == "Email" and email_match:
-            return email_match.group(0)
+        if tab_name == "Email":
+            email_match = re.search(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}", raw)
+            if email_match:
+                return email_match.group(0)
 
         url_match = re.search(r"https?://[^\s|:]+(?:/[^\s|]*)?", raw)
         cleaned = raw.replace("|", ":")
 
         if url_match:
-            parsed = urlparse(url_match.group(0))
-            path_bits = [part for part in parsed.path.split("/") if part]
-            if tab_name in {"Social", "Games", "AI"} and path_bits:
-                return path_bits[-1]
-            if tab_name == "Crypto" and path_bits:
-                return path_bits[-1]
+            try:
+                parsed = urlparse(url_match.group(0))
+                path_bits = [part for part in parsed.path.split("/") if part]
+                if tab_name in {"Social", "Games", "AI"} and path_bits:
+                    return path_bits[-1]
+                if tab_name == "Crypto" and path_bits:
+                    return path_bits[-1]
+            except (ValueError, TypeError):
+                pass
 
         tokens = [t.strip() for t in cleaned.split(":") if t.strip()]
         tokens = [t for t in tokens if t not in {"http", "https", "//"}]
