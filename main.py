@@ -25,6 +25,14 @@ ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
 
 
+# Max lines to display in the textbox to keep UI responsive
+_TEXTBOX_DISPLAY_LIMIT = 5000
+# Batch size for asyncio.gather to avoid scheduling millions of coroutines at once
+_GATHER_BATCH_SIZE = 10000
+# Max log lines kept in memory per tab (older entries are dropped)
+_MAX_LOG_LINES = 50000
+
+
 class MultiCheckerApp(ctk.CTk):
     def __init__(self):
         super().__init__()
@@ -35,6 +43,7 @@ class MultiCheckerApp(ctk.CTk):
         self.results = []
         self.all_results = []
         self._platform_stats = {}
+        self._loaded_data = {}  # tab_name -> list of lines loaded from file
 
         self.checkers = {
             "Email": EmailChecker(),
@@ -246,13 +255,38 @@ class MultiCheckerApp(ctk.CTk):
         filepath = filedialog.askopenfilename(filetypes=[("Text files", "*.txt"), ("All files", "*.*")])
         if filepath:
             try:
+                tab_name = self._get_tab_for_widgets(widgets)
+                lines = []
+                chunk_size = 1_000_000
                 with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
-                    lines = [line.strip() for line in f if line.strip()]
+                    while True:
+                        chunk = f.readlines(chunk_size)
+                        if not chunk:
+                            break
+                        for line in chunk:
+                            stripped = line.strip()
+                            if stripped:
+                                lines.append(stripped)
+                total = len(lines)
+                self._loaded_data[tab_name] = lines
                 widgets["input"].delete("1.0", "end")
-                widgets["input"].insert("1.0", "\n".join(lines))
-                self.log(widgets, i18n.t("file_loaded").format(len(lines)))
+                if total <= _TEXTBOX_DISPLAY_LIMIT:
+                    widgets["input"].insert("1.0", "\n".join(lines))
+                else:
+                    preview = "\n".join(lines[:_TEXTBOX_DISPLAY_LIMIT])
+                    widgets["input"].insert(
+                        "1.0",
+                        f"{preview}\n\n... [{total - _TEXTBOX_DISPLAY_LIMIT} more lines loaded from file] ..."
+                    )
+                self.log(widgets, i18n.t("file_loaded").format(total))
             except Exception as e:
                 self.log(widgets, f"Import error: {e}")
+
+    def _get_tab_for_widgets(self, widgets):
+        for tab_name, w in self.tab_widgets.items():
+            if w is widgets:
+                return tab_name
+        return "Unknown"
 
     def _safe_int(self, value, default):
         try:
@@ -297,15 +331,30 @@ class MultiCheckerApp(ctk.CTk):
 
     def start_check(self, tab_name):
         widgets = self.tab_widgets[tab_name]
-        raw_data = widgets["input"].get("1.0", "end").strip().split("\n")
-        if tab_name == "All":
-            data = [d.strip() for d in raw_data if d.strip()]
-        else:
-            data = [self._normalize_input_line(d, tab_name) for d in raw_data if d.strip()]
-        data = [d for d in data if d]
 
-        original_count = len(data)
-        data = list(dict.fromkeys(data))
+        # Use pre-loaded file data if available, otherwise read from textbox
+        if tab_name in self._loaded_data and self._loaded_data[tab_name]:
+            raw_lines = self._loaded_data[tab_name]
+        else:
+            raw_text = widgets["input"].get("1.0", "end").strip()
+            raw_lines = raw_text.split("\n")
+
+        # Normalize in streaming fashion to avoid duplicating the list
+        if tab_name == "All":
+            data_iter = (d.strip() for d in raw_lines if d.strip())
+        else:
+            data_iter = (self._normalize_input_line(d, tab_name) for d in raw_lines if d.strip())
+
+        # Deduplicate using a set for O(1) lookups while preserving order
+        seen = set()
+        data = []
+        for item in data_iter:
+            if item and item not in seen:
+                seen.add(item)
+                data.append(item)
+        del seen  # free memory
+
+        original_count = len(raw_lines)
         dupes_removed = original_count - len(data)
 
         if not data:
@@ -356,6 +405,8 @@ class MultiCheckerApp(ctk.CTk):
         valid_count = [0]
         invalid_count = [0]
         error_count = [0]
+        # Throttle UI updates: update every N completions to avoid flooding Tkinter
+        ui_update_interval = max(1, total // 2000)
 
         proxies = []
         if proxy:
@@ -384,8 +435,9 @@ class MultiCheckerApp(ctk.CTk):
                         item = self._normalize_input_line(data_item, cat)
                         if not item:
                             completed[0] += 1
-                            progress = completed[0] / total
-                            self.after(0, lambda p=progress: widgets["progress"].set(p))
+                            if completed[0] % ui_update_interval == 0:
+                                progress = completed[0] / total
+                                self.after(0, lambda p=progress: widgets["progress"].set(p))
                             return None
                     result = await self.check_item(item, cat, timeout, p, session)
                     completed[0] += 1
@@ -429,21 +481,56 @@ class MultiCheckerApp(ctk.CTk):
                             self.after(0, lambda t=tag, i=inp, m=msg: self.log_tagged(
                                 widgets, "invalid", f"[-] [{t}] {i} - {m}"))
 
-                    progress = completed[0] / total
-                    v, inv, err, comp = valid_count[0], invalid_count[0], error_count[0], completed[0]
-                    self.after(0, lambda p=progress: widgets["progress"].set(p))
-                    self.after(0, lambda: self._update_counters(widgets, v, inv, err, comp))
+                    if completed[0] % ui_update_interval == 0 or completed[0] == total:
+                        progress = completed[0] / total
+                        v, inv, err, comp = valid_count[0], invalid_count[0], error_count[0], completed[0]
+                        self.after(0, lambda p=progress: widgets["progress"].set(p))
+                        self.after(0, lambda: self._update_counters(widgets, v, inv, err, comp))
 
                     return result
 
-            if tab_name == "All":
-                tasks = [check_with_sem(item, cat) for item in data for cat in all_categories]
-            else:
-                tasks = [check_with_sem(item) for item in data]
-            results = await asyncio.gather(*tasks)
+            # Process in batches to avoid scheduling millions of coroutines at once
+            results = []
+            batch = []
 
+            def _flush_batch():
+                nonlocal batch
+                if tab_name == "All":
+                    tasks = [check_with_sem(item, cat) for item, cat in batch]
+                else:
+                    tasks = [check_with_sem(item) for item, _ in batch]
+                batch = []
+                return tasks
+
+            if tab_name == "All":
+                for item in data:
+                    for cat in all_categories:
+                        batch.append((item, cat))
+                        if len(batch) >= _GATHER_BATCH_SIZE:
+                            if not self.is_running:
+                                break
+                            batch_results = await asyncio.gather(*_flush_batch())
+                            results.extend(batch_results)
+                    if not self.is_running:
+                        break
+            else:
+                for item in data:
+                    batch.append((item, None))
+                    if len(batch) >= _GATHER_BATCH_SIZE:
+                        if not self.is_running:
+                            break
+                        batch_results = await asyncio.gather(*_flush_batch())
+                        results.extend(batch_results)
+
+            # Flush remaining items
+            if batch and self.is_running:
+                batch_results = await asyncio.gather(*_flush_batch())
+                results.extend(batch_results)
+
+        # Filter results efficiently — only keep non-None results
         self.all_results = [r for r in results if r]
-        self.results = [r for r in results if r and r.get("exists")]
+        self.results = [r for r in self.all_results if r.get("exists")]
+        del results  # free the raw list
 
         v, inv, err = valid_count[0], invalid_count[0], error_count[0]
         self.after(0, lambda: self._update_counters(widgets, v, inv, err, total))
@@ -518,7 +605,10 @@ class MultiCheckerApp(ctk.CTk):
         widgets["cnt_total"].configure(text=f"{i18n.t('total')}: {total}")
 
     def log_tagged(self, widgets, tag, message):
-        widgets.setdefault("_log_lines", []).append((tag, message))
+        log_lines = widgets.setdefault("_log_lines", [])
+        log_lines.append((tag, message))
+        if len(log_lines) > _MAX_LOG_LINES:
+            widgets["_log_lines"] = log_lines[-_MAX_LOG_LINES:]
         current_filter = widgets.get("_filter", "all")
         if current_filter == "all" or current_filter == tag:
             self._log_safe(widgets, message)
@@ -606,11 +696,14 @@ class MultiCheckerApp(ctk.CTk):
 
     def clear_output(self, widgets):
         widgets["output"].delete("1.0", "end")
+        widgets["input"].delete("1.0", "end")
         widgets["progress"].set(0)
         self._update_counters(widgets, 0, 0, 0, 0)
         widgets["_log_lines"] = []
         widgets["_filter"] = "all"
         widgets["filter_seg"].set(i18n.t("filter_all"))
+        tab_name = self._get_tab_for_widgets(widgets)
+        self._loaded_data.pop(tab_name, None)
 
     def export_results(self, widgets, fmt="txt"):
         if not self.results:
