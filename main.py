@@ -16,7 +16,7 @@ from urllib.parse import urlparse
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-APP_VERSION = "1.0.23"
+APP_VERSION = "1.0.24"
 
 # Fix for Windows: aiohttp requires SelectorEventLoop, not Proactor
 if platform.system() == "Windows":
@@ -210,6 +210,12 @@ class MultiCheckerApp(ctk.CTk):
         export_csv_btn.pack(side="left", padx=5)
         self._translatable.append((export_csv_btn, "export_csv", None))
 
+        dedup_btn = ctk.CTkButton(btn_frame, text=i18n.t("remove_duplicates"),
+                                   command=lambda: self.remove_duplicates(widgets),
+                                   fg_color="#e67e22", hover_color="#d35400")
+        dedup_btn.pack(side="left", padx=5)
+        self._translatable.append((dedup_btn, "remove_duplicates", None))
+
         counter_frame = ctk.CTkFrame(frame)
         counter_frame.pack(pady=3, padx=10, fill="x")
 
@@ -298,6 +304,49 @@ class MultiCheckerApp(ctk.CTk):
             if w is widgets:
                 return tab_name
         return "Unknown"
+
+    def remove_duplicates(self, widgets):
+        """Remove duplicate lines from loaded data or textbox input."""
+        tab_name = self._get_tab_for_widgets(widgets)
+
+        if tab_name in self._loaded_data and self._loaded_data[tab_name]:
+            raw_lines = self._loaded_data[tab_name]
+        else:
+            raw_text = widgets["input"].get("1.0", "end").strip()
+            if not raw_text:
+                self.log(widgets, i18n.t("no_data_to_dedup"))
+                return
+            raw_lines = [line.strip() for line in raw_text.split("\n") if line.strip()]
+
+        original_count = len(raw_lines)
+        if original_count == 0:
+            self.log(widgets, i18n.t("no_data_to_dedup"))
+            return
+
+        seen = set()
+        unique = []
+        for line in raw_lines:
+            if line not in seen:
+                seen.add(line)
+                unique.append(line)
+        del seen
+
+        dupes = original_count - len(unique)
+        if dupes > 0:
+            self._loaded_data[tab_name] = unique
+            widgets["input"].delete("1.0", "end")
+            total = len(unique)
+            if total <= _TEXTBOX_DISPLAY_LIMIT:
+                widgets["input"].insert("1.0", "\n".join(unique))
+            else:
+                preview = "\n".join(unique[:_TEXTBOX_DISPLAY_LIMIT])
+                widgets["input"].insert(
+                    "1.0",
+                    f"{preview}\n\n... [{total - _TEXTBOX_DISPLAY_LIMIT} more lines] ..."
+                )
+            self.log(widgets, i18n.t("dedup_result").format(dupes, len(unique)))
+        else:
+            self.log(widgets, i18n.t("dedup_no_dupes").format(original_count))
 
     def _safe_int(self, value, default):
         try:
