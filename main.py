@@ -16,7 +16,7 @@ from urllib.parse import urlparse
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-APP_VERSION = "1.0.25"
+APP_VERSION = "1.0.26"
 
 # Fix for Windows: aiohttp requires SelectorEventLoop, not Proactor
 if platform.system() == "Windows":
@@ -447,8 +447,9 @@ class MultiCheckerApp(ctk.CTk):
         try:
             original_count = len(raw_lines)
 
-            if tab_name in ("Crypto", "All"):
-                # Strip + deduplicate all lines (no filtering — checker handles rejection)
+            if tab_name == "Crypto":
+                data = self._fast_crypto_filter(raw_lines, widgets)
+            elif tab_name == "All":
                 seen = set()
                 data = []
                 total = len(raw_lines)
