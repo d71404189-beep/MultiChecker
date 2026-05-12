@@ -16,6 +16,8 @@ from urllib.parse import urlparse
 
 sys.path.insert(0, os.path.dirname(__file__))
 
+APP_VERSION = "1.0.22"
+
 # Fix for Windows: aiohttp requires SelectorEventLoop, not Proactor
 if platform.system() == "Windows":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -42,7 +44,7 @@ _MAX_LOG_LINES = 50000
 class MultiCheckerApp(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title(i18n.t("title"))
+        self.title(f"{i18n.t('title')} v{APP_VERSION}")
         self.geometry("1100x750")
 
         self.is_running = False
@@ -67,8 +69,11 @@ class MultiCheckerApp(ctk.CTk):
         top_frame = ctk.CTkFrame(self)
         top_frame.pack(fill="x", padx=10, pady=5)
 
-        self.title_label = ctk.CTkLabel(top_frame, text=i18n.t("title"), font=("Arial", 20, "bold"))
+        self.title_label = ctk.CTkLabel(top_frame, text=f"{i18n.t('title')} v{APP_VERSION}", font=("Arial", 20, "bold"))
         self.title_label.pack(side="left", padx=10)
+
+        self.version_label = ctk.CTkLabel(top_frame, text=f"v{APP_VERSION}", font=("Arial", 12), text_color="gray")
+        self.version_label.pack(side="left", padx=(0, 10))
 
         self.lang_btn = ctk.CTkSwitch(top_frame, text="EN", command=self.toggle_lang)
         self.lang_btn.pack(side="right", padx=10)
@@ -101,8 +106,8 @@ class MultiCheckerApp(ctk.CTk):
         self._refresh_ui_text()
 
     def _refresh_ui_text(self):
-        self.title(i18n.t("title"))
-        self.title_label.configure(text=i18n.t("title"))
+        self.title(f"{i18n.t('title')} v{APP_VERSION}")
+        self.title_label.configure(text=f"{i18n.t('title')} v{APP_VERSION}")
         for widget, key, fmt in self._translatable:
             try:
                 text = i18n.t(key)
