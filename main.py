@@ -16,7 +16,7 @@ from urllib.parse import urlparse
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-APP_VERSION = "1.0.24"
+APP_VERSION = "1.0.25"
 
 # Fix for Windows: aiohttp requires SelectorEventLoop, not Proactor
 if platform.system() == "Windows":
@@ -447,14 +447,26 @@ class MultiCheckerApp(ctk.CTk):
         try:
             original_count = len(raw_lines)
 
-            if tab_name == "Crypto":
-                data = self._fast_crypto_filter(raw_lines, widgets)
+            if tab_name in ("Crypto", "All"):
+                # Strip + deduplicate all lines (no filtering — checker handles rejection)
+                seen = set()
+                data = []
+                total = len(raw_lines)
+                report_interval = max(total // 10, 1_000_000)
+                for idx, line in enumerate(raw_lines):
+                    stripped = line.strip()
+                    if not stripped:
+                        continue
+                    if stripped not in seen:
+                        seen.add(stripped)
+                        data.append(stripped)
+                    if idx % report_interval == 0 and idx > 0:
+                        pct = idx * 100 // total
+                        self.after(0, lambda p=pct, i=idx, t=total: self.log(
+                            widgets, f"Scanning... {p}% ({i}/{t})"))
+                del seen
             else:
-                # Normalize in streaming fashion
-                if tab_name == "All":
-                    data_iter = (d.strip() for d in raw_lines if d.strip())
-                else:
-                    data_iter = (self._normalize_input_line(d, tab_name) for d in raw_lines if d.strip())
+                data_iter = (self._normalize_input_line(d, tab_name) for d in raw_lines if d.strip())
 
                 # Deduplicate using a set for O(1) lookups while preserving order
                 seen = set()
