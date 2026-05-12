@@ -50,6 +50,10 @@ LANG = {
         "all_categories": "All",
         "starting_all": "Checking {} items across {} categories ({} total checks) with {} threads...",
         "preparing_data": "Preparing data (normalizing & deduplicating)...",
+        "remove_duplicates": "Remove Duplicates",
+        "no_data_to_dedup": "No data loaded to deduplicate!",
+        "dedup_result": "Removed {} duplicates ({} unique lines remain)",
+        "dedup_no_dupes": "No duplicates found ({} lines)",
     },
     "ru": {
         "title": "Multi Checker Pro",
@@ -102,6 +106,10 @@ LANG = {
         "all_categories": "Все",
         "starting_all": "Проверка {} элементов по {} категориям ({} проверок) с {} потоками...",
         "preparing_data": "Подготовка данных (нормализация и дедупликация)...",
+        "remove_duplicates": "Удалить дубликаты",
+        "no_data_to_dedup": "Нет данных для удаления дубликатов!",
+        "dedup_result": "Удалено {} дубликатов (осталось {} уникальных строк)",
+        "dedup_no_dupes": "Дубликатов не найдено ({} строк)",
     }
 }
 
