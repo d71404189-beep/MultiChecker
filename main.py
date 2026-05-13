@@ -14,7 +14,7 @@ from urllib.parse import urlparse
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-APP_VERSION = "1.0.38"
+APP_VERSION = "1.0.40"
 
 if platform.system() == "Windows":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -85,6 +85,8 @@ class MultiCheckerApp(ctk.CTk):
         self._translatable = []
         self._active_tab   = "All"
         self._setup_ui()
+        self._load_config()
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
 
     # ═══════════════════════════════════════════════════════════════════════════
     #  LAYOUT
@@ -143,6 +145,18 @@ class MultiCheckerApp(ctk.CTk):
         self.lang_sw.pack(anchor="w", padx=4, pady=(4, 0))
         if i18n.current_lang == "ru":
             self.lang_sw.select()
+
+        # Theme toggle (dark/light)
+        theme_f = ctk.CTkFrame(sb, fg_color="transparent")
+        theme_f.grid(row=10, column=0, padx=14, pady=(40, 4), sticky="ew")
+        ctk.CTkLabel(theme_f, text="Theme", font=("Segoe UI", 10),
+                     text_color=MUTED).pack(anchor="w", padx=4)
+        self.theme_sw = ctk.CTkSwitch(
+            theme_f, text="Dark / Light", font=("Segoe UI", 12),
+            command=self._toggle_theme,
+            button_color=ACCENT, progress_color=ACCENT,
+        )
+        self.theme_sw.pack(anchor="w", padx=4, pady=(4, 0))
 
         # Status dot
         self._sb_status = ctk.CTkLabel(
@@ -305,6 +319,7 @@ class MultiCheckerApp(ctk.CTk):
         btn(bf, "■  Стоп",    RED,    "#da3633", self.stop_check, 110).pack(side="left", padx=(0,6))
         btn(bf, "⌫  Очистить", CARD,  HOVER, lambda: self.clear_output(w), 120).pack(side="left", padx=(0,6))
         btn(bf, "↑  Файл",    CARD,   HOVER, lambda: self.import_file(w), 110).pack(side="left", padx=(0,6))
+        btn(bf, "\U0001f4cb",  CARD,   HOVER, lambda: self._paste_clipboard(w), 42).pack(side="left", padx=(0,6))
         btn(bf, "⊘  Дубли",   "#6e40c9", "#5a32a3", lambda: self.remove_duplicates(w), 110).pack(side="left", padx=(0,6))
 
         # Export group
@@ -414,6 +429,105 @@ class MultiCheckerApp(ctk.CTk):
         i18n.set_lang("en" if i18n.current_lang == "ru" else "ru")
         self._refresh_text()
 
+    def _toggle_theme(self):
+        """Toggle between dark and light appearance mode."""
+        if self.theme_sw.get():
+            ctk.set_appearance_mode("light")
+        else:
+            ctk.set_appearance_mode("dark")
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    #  CONFIG PERSISTENCE (Feature 7)
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    def _get_config_path(self):
+        return os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
+
+    def _load_config(self):
+        """Load settings from config.json in app directory."""
+        config_path = self._get_config_path()
+        if not os.path.isfile(config_path):
+            return
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+        except Exception:
+            return
+
+        # Apply theme
+        theme = cfg.get("theme", "dark")
+        ctk.set_appearance_mode(theme)
+        if theme == "light":
+            self.theme_sw.select()
+        else:
+            self.theme_sw.deselect()
+
+        # Apply language
+        lang = cfg.get("lang", "ru")
+        if lang != i18n.current_lang:
+            i18n.set_lang(lang)
+            self._refresh_text()
+        if lang == "ru":
+            self.lang_sw.select()
+        else:
+            self.lang_sw.deselect()
+
+        # Apply settings to all tabs
+        for tab_name, w in self.tab_widgets.items():
+            # Threads
+            threads = cfg.get("threads", 100)
+            w["threads"].set(threads)
+            w["tval"].configure(text=str(int(threads)))
+
+            # Timeout
+            timeout = cfg.get("timeout", "10")
+            w["timeout"].delete(0, "end")
+            w["timeout"].insert(0, str(timeout))
+
+            # Proxy
+            proxy = cfg.get("proxy", "")
+            if proxy:
+                w["proxy"].delete(0, "end")
+                w["proxy"].insert(0, proxy)
+
+            # Telegram settings
+            tg_token = cfg.get("tg_token", "")
+            tg_chat_id = cfg.get("tg_chat_id", "")
+            if tg_token:
+                w["tg_token"].delete(0, "end")
+                w["tg_token"].insert(0, tg_token)
+            if tg_chat_id:
+                w["tg_chat_id"].delete(0, "end")
+                w["tg_chat_id"].insert(0, tg_chat_id)
+
+    def _save_config(self):
+        """Save current settings to config.json."""
+        config_path = self._get_config_path()
+        # Get settings from first available tab
+        first_tab = list(self.tab_widgets.keys())[0]
+        w = self.tab_widgets[first_tab]
+
+        cfg = {
+            "theme": "light" if self.theme_sw.get() else "dark",
+            "lang": i18n.current_lang,
+            "threads": int(w["threads"].get()),
+            "timeout": w["timeout"].get().strip(),
+            "proxy": w["proxy"].get().strip(),
+            "tg_token": w["tg_token"].get().strip(),
+            "tg_chat_id": w["tg_chat_id"].get().strip(),
+        }
+
+        try:
+            with open(config_path, "w", encoding="utf-8") as f:
+                json.dump(cfg, f, indent=2, ensure_ascii=False)
+        except Exception:
+            pass
+
+    def _on_close(self):
+        """Save config and destroy the application."""
+        self._save_config()
+        self.destroy()
+
     def _refresh_text(self):
         self.title(f"MultiChecker Pro  v{APP_VERSION}")
         fl = [i18n.t("filter_all"), i18n.t("filter_valid"),
@@ -456,6 +570,20 @@ class MultiCheckerApp(ctk.CTk):
             self.log(w, i18n.t("file_loaded").format(total))
         except Exception as e:
             self.log(w, f"Import error: {e}")
+
+    def _paste_clipboard(self, w):
+        """Paste text from clipboard into the input textbox."""
+        try:
+            text = self.clipboard_get()
+            if text.strip():
+                w["input"].delete("1.0", "end")
+                w["input"].insert("1.0", text)
+                lines = [l.strip() for l in text.split("\n") if l.strip()]
+                tab = self._tab_of(w)
+                self._loaded_data[tab] = lines
+                self.log(w, f"Clipboard: {len(lines)} lines pasted")
+        except Exception:
+            pass
 
     def export_results(self, w, fmt="txt"):
         if not self.results:

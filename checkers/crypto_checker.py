@@ -420,36 +420,40 @@ class CryptoChecker(BaseChecker):
 
             seed_bytes = Bip39SeedGenerator(phrase).Generate()
 
-            # BTC Legacy (m/44'/0'/0'/0/0)
-            try:
-                btc_ctx = Bip44.FromSeed(seed_bytes, Bip44Coins.BITCOIN).Purpose().Coin().Account(0).Change(Bip44Changes.CHAIN_EXT).AddressIndex(0)
-                derived["bitcoin"] = btc_ctx.PublicKey().ToAddress()
-            except Exception as e:
-                errors.append(f"BTC derive: {e}")
+            # BTC Legacy (m/44'/0'/0'/0/0..2) — 3 indexes
+            for addr_idx in range(3):
+                try:
+                    btc_ctx = Bip44.FromSeed(seed_bytes, Bip44Coins.BITCOIN).Purpose().Coin().Account(0).Change(Bip44Changes.CHAIN_EXT).AddressIndex(addr_idx)
+                    derived[f"bitcoin_{addr_idx}"] = btc_ctx.PublicKey().ToAddress()
+                except Exception as e:
+                    errors.append(f"BTC Legacy index {addr_idx} derive: {e}")
 
-            # Feature 1 — BTC Segwit Native (m/84'/0'/0'/0/0) -> bc1q...
-            try:
-                btc_segwit_ctx = Bip84.FromSeed(seed_bytes, Bip84Coins.BITCOIN).Purpose().Coin().Account(0).Change(Bip44Changes.CHAIN_EXT).AddressIndex(0)
-                derived["bitcoin_segwit"] = btc_segwit_ctx.PublicKey().ToAddress()
-            except Exception as e:
-                errors.append(f"BTC Segwit derive: {e}")
+            # BTC Segwit Native (m/84'/0'/0'/0/0..2) -> bc1q... — 3 indexes
+            for addr_idx in range(3):
+                try:
+                    btc_segwit_ctx = Bip84.FromSeed(seed_bytes, Bip84Coins.BITCOIN).Purpose().Coin().Account(0).Change(Bip44Changes.CHAIN_EXT).AddressIndex(addr_idx)
+                    derived[f"bitcoin_segwit_{addr_idx}"] = btc_segwit_ctx.PublicKey().ToAddress()
+                except Exception as e:
+                    errors.append(f"BTC Segwit index {addr_idx} derive: {e}")
 
-            # Feature 1 — BTC Nested Segwit (m/49'/0'/0'/0/0) -> 3...
-            try:
-                btc_nested_ctx = Bip49.FromSeed(seed_bytes, Bip49Coins.BITCOIN).Purpose().Coin().Account(0).Change(Bip44Changes.CHAIN_EXT).AddressIndex(0)
-                derived["bitcoin_nested"] = btc_nested_ctx.PublicKey().ToAddress()
-            except Exception as e:
-                errors.append(f"BTC Nested Segwit derive: {e}")
+            # BTC Nested Segwit (m/49'/0'/0'/0/0..2) -> 3... — 3 indexes
+            for addr_idx in range(3):
+                try:
+                    btc_nested_ctx = Bip49.FromSeed(seed_bytes, Bip49Coins.BITCOIN).Purpose().Coin().Account(0).Change(Bip44Changes.CHAIN_EXT).AddressIndex(addr_idx)
+                    derived[f"bitcoin_nested_{addr_idx}"] = btc_nested_ctx.PublicKey().ToAddress()
+                except Exception as e:
+                    errors.append(f"BTC Nested Segwit index {addr_idx} derive: {e}")
 
-            # Feature 1 — BTC Taproot (m/86'/0'/0'/0/0) -> bc1p...
-            try:
-                btc_taproot_ctx = Bip86.FromSeed(seed_bytes, Bip86Coins.BITCOIN).Purpose().Coin().Account(0).Change(Bip44Changes.CHAIN_EXT).AddressIndex(0)
-                derived["bitcoin_taproot"] = btc_taproot_ctx.PublicKey().ToAddress()
-            except Exception as e:
-                errors.append(f"BTC Taproot derive: {e}")
+            # BTC Taproot (m/86'/0'/0'/0/0..2) -> bc1p... — 3 indexes
+            for addr_idx in range(3):
+                try:
+                    btc_taproot_ctx = Bip86.FromSeed(seed_bytes, Bip86Coins.BITCOIN).Purpose().Coin().Account(0).Change(Bip44Changes.CHAIN_EXT).AddressIndex(addr_idx)
+                    derived[f"bitcoin_taproot_{addr_idx}"] = btc_taproot_ctx.PublicKey().ToAddress()
+                except Exception as e:
+                    errors.append(f"BTC Taproot index {addr_idx} derive: {e}")
 
-            # Feature 2 — ETH address indexes 0-4 on account 0 (m/44'/60'/0'/0/0 through m/44'/60'/0'/0/4)
-            for addr_idx in range(5):
+            # ETH address indexes 0-9 on account 0 (m/44'/60'/0'/0/0 through m/44'/60'/0'/0/9)
+            for addr_idx in range(10):
                 try:
                     eth_ctx = Bip44.FromSeed(seed_bytes, Bip44Coins.ETHEREUM).Purpose().Coin().Account(0).Change(Bip44Changes.CHAIN_EXT).AddressIndex(addr_idx)
                     key_name = f"ethereum_{addr_idx}"
@@ -476,48 +480,48 @@ class CryptoChecker(BaseChecker):
             return result
 
         # Map derived keys to handlers and balance keys
-        handlers = {
-            "bitcoin":         self._check_bitcoin,
-            "bitcoin_segwit":  self._check_bitcoin,
-            "bitcoin_nested":  self._check_bitcoin,
-            "bitcoin_taproot": self._check_bitcoin,
-            "ethereum_0":      self._check_ethereum,
-            "ethereum_1":      self._check_ethereum,
-            "ethereum_2":      self._check_ethereum,
-            "ethereum_3":      self._check_ethereum,
-            "ethereum_4":      self._check_ethereum,
-            "tron":            self._check_tron,
-            "solana":          self._check_solana,
-        }
+        handlers = {}
+        _bal_keys = {}
+        _price_keys = {}
 
-        _bal_keys = {
-            "bitcoin":         "balance_btc",
-            "bitcoin_segwit":  "balance_btc",
-            "bitcoin_nested":  "balance_btc",
-            "bitcoin_taproot": "balance_btc",
-            "ethereum_0":      "balance_eth",
-            "ethereum_1":      "balance_eth",
-            "ethereum_2":      "balance_eth",
-            "ethereum_3":      "balance_eth",
-            "ethereum_4":      "balance_eth",
-            "tron":            "balance_trx",
-            "solana":          "balance_sol",
-        }
+        # BTC Legacy indexes 0-2
+        for idx in range(3):
+            handlers[f"bitcoin_{idx}"] = self._check_bitcoin
+            _bal_keys[f"bitcoin_{idx}"] = "balance_btc"
+            _price_keys[f"bitcoin_{idx}"] = "bitcoin"
 
-        # Price mapping for each derived key
-        _price_keys = {
-            "bitcoin":         "bitcoin",
-            "bitcoin_segwit":  "bitcoin",
-            "bitcoin_nested":  "bitcoin",
-            "bitcoin_taproot": "bitcoin",
-            "ethereum_0":      "ethereum",
-            "ethereum_1":      "ethereum",
-            "ethereum_2":      "ethereum",
-            "ethereum_3":      "ethereum",
-            "ethereum_4":      "ethereum",
-            "tron":            "tron",
-            "solana":          "solana",
-        }
+        # BTC Segwit indexes 0-2
+        for idx in range(3):
+            handlers[f"bitcoin_segwit_{idx}"] = self._check_bitcoin
+            _bal_keys[f"bitcoin_segwit_{idx}"] = "balance_btc"
+            _price_keys[f"bitcoin_segwit_{idx}"] = "bitcoin"
+
+        # BTC Nested Segwit indexes 0-2
+        for idx in range(3):
+            handlers[f"bitcoin_nested_{idx}"] = self._check_bitcoin
+            _bal_keys[f"bitcoin_nested_{idx}"] = "balance_btc"
+            _price_keys[f"bitcoin_nested_{idx}"] = "bitcoin"
+
+        # BTC Taproot indexes 0-2
+        for idx in range(3):
+            handlers[f"bitcoin_taproot_{idx}"] = self._check_bitcoin
+            _bal_keys[f"bitcoin_taproot_{idx}"] = "balance_btc"
+            _price_keys[f"bitcoin_taproot_{idx}"] = "bitcoin"
+
+        # ETH indexes 0-9
+        for idx in range(10):
+            handlers[f"ethereum_{idx}"] = self._check_ethereum
+            _bal_keys[f"ethereum_{idx}"] = "balance_eth"
+            _price_keys[f"ethereum_{idx}"] = "ethereum"
+
+        # TRX and SOL
+        handlers["tron"] = self._check_tron
+        _bal_keys["tron"] = "balance_trx"
+        _price_keys["tron"] = "tron"
+
+        handlers["solana"] = self._check_solana
+        _bal_keys["solana"] = "balance_sol"
+        _price_keys["solana"] = "solana"
 
         # Check all derived addresses concurrently
         check_items = [(coin, addr) for coin, addr in derived.items() if coin in handlers]
@@ -763,6 +767,11 @@ class CryptoChecker(BaseChecker):
 
         if balance is not None:
             tokens = await self._check_erc20(address, timeout, proxy, session)
+            # BSC/Polygon tokens (same 0x address works on BSC/Polygon)
+            bsc_tokens = await self._check_bsc_tokens(address, timeout, proxy, session)
+            polygon_tokens = await self._check_polygon_tokens(address, timeout, proxy, session)
+            # Uniswap V3 LP positions
+            uni_v3 = await self._check_uniswap_v3_positions(address, timeout, proxy, session)
             # Point 3 — NFT check
             nfts   = await self._check_nft(address, timeout, proxy, session)
             # Point 5 — staking
@@ -783,21 +792,33 @@ class CryptoChecker(BaseChecker):
                     total_token_usd += tv * tp
                 elif tk.upper() in ("USDT", "USDC", "DAI"):
                     total_token_usd += tv  # stablecoins fallback
+            # Add BSC stablecoins to total (they are ~$1 each)
+            for tk, tv in bsc_tokens.items():
+                total_token_usd += tv  # BSC USDT/USDC are stablecoins
+            # Add Polygon stablecoins to total
+            for tk, tv in polygon_tokens.items():
+                total_token_usd += tv  # Polygon USDT/USDC are stablecoins
 
             result["info"]["balance_eth"] = balance
             result["info"]["tokens"]      = tokens
+            result["info"]["bsc_tokens"]  = bsc_tokens
+            result["info"]["polygon_tokens"] = polygon_tokens
+            result["info"]["uni_v3"]      = uni_v3
             result["info"]["nfts"]        = nfts
             result["info"]["staking"]     = staking
             result["info"]["last_tx"]     = last_tx
             result["info"]["approvals"]   = approvals
             result["info"]["activity"]    = activity
             result["info"]["token_usd"]   = total_token_usd
-            result["exists"] = balance > 0 or bool(tokens) or bool(nfts) or bool(staking)
+            result["exists"] = balance > 0 or bool(tokens) or bool(nfts) or bool(staking) or bool(bsc_tokens) or bool(polygon_tokens) or bool(uni_v3)
             usd = self._usd(balance, "ethereum", prices)
             msg = f"Balance: {balance:.6f} ETH{usd}"
             if tokens:  msg += "  |  Tokens: " + ", ".join(f"{v:.2f} {k}" for k,v in tokens.items() if v>0)
+            if bsc_tokens: msg += "  |  BSC: " + ", ".join(f"{v:.2f} {k}" for k,v in bsc_tokens.items())
+            if polygon_tokens: msg += "  |  Polygon: " + ", ".join(f"{v:.2f} {k}" for k,v in polygon_tokens.items())
             if total_token_usd > 0:
                 msg += f"  |  Tokens USD: ~${total_token_usd:,.2f}"
+            if uni_v3:  msg += f"  |  {uni_v3}"
             if nfts:    msg += f"  |  NFTs: {nfts}"
             if staking: msg += "  |  Staking: " + ", ".join(f"{v:.4f} {k}" for k,v in staking.items())
             if last_tx: msg += f"  |  Last tx: {last_tx}"
@@ -869,6 +890,87 @@ class CryptoChecker(BaseChecker):
             except Exception:
                 continue
         return balances
+
+    # ── BSC BEP-20 tokens ─────────────────────────────────────────────────────
+    async def _check_bsc_tokens(self, address, timeout, proxy, session):
+        """Check BEP-20 token balances (USDT, USDC) on BSC."""
+        balances = {}
+        bsc_tokens = {
+            "BSC_USDT": ("0x55d398326f99059fF775485246999027B3197955", 18),
+            "BSC_USDC": ("0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d", 18),
+        }
+        for symbol, (contract, decimals) in bsc_tokens.items():
+            try:
+                data_hex = "0x70a08231" + "000000000000000000000000" + address[2:]
+                payload = {"jsonrpc": "2.0", "id": 1, "method": "eth_call",
+                           "params": [{"to": contract, "data": data_hex}, "latest"]}
+                resp = await self.fetch(session, "POST", "https://bsc-dataseed.binance.org/",
+                                        timeout=timeout, proxy=proxy,
+                                        json=payload, headers={"Content-Type": "application/json"})
+                if resp.status == 200:
+                    d = await resp.json(); resp.close()
+                    raw = d.get("result", "0x0")
+                    val = int(raw, 16) / 10**decimals
+                    if val > 0:
+                        balances[symbol] = val
+                else:
+                    resp.close()
+            except Exception:
+                continue
+        return balances
+
+    # ── Polygon tokens ─────────────────────────────────────────────────────────
+    async def _check_polygon_tokens(self, address, timeout, proxy, session):
+        """Check token balances (USDT, USDC) on Polygon."""
+        balances = {}
+        polygon_tokens = {
+            "POLY_USDT": ("0xc2132D05D31c914a87C6611C10748AEb04B58e8F", 6),
+            "POLY_USDC": ("0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359", 6),
+        }
+        for symbol, (contract, decimals) in polygon_tokens.items():
+            try:
+                data_hex = "0x70a08231" + "000000000000000000000000" + address[2:]
+                payload = {"jsonrpc": "2.0", "id": 1, "method": "eth_call",
+                           "params": [{"to": contract, "data": data_hex}, "latest"]}
+                resp = await self.fetch(session, "POST", "https://polygon-rpc.com",
+                                        timeout=timeout, proxy=proxy,
+                                        json=payload, headers={"Content-Type": "application/json"})
+                if resp.status == 200:
+                    d = await resp.json(); resp.close()
+                    raw = d.get("result", "0x0")
+                    val = int(raw, 16) / 10**decimals
+                    if val > 0:
+                        balances[symbol] = val
+                else:
+                    resp.close()
+            except Exception:
+                continue
+        return balances
+
+    # ── Uniswap V3 LP positions ───────────────────────────────────────────────
+    async def _check_uniswap_v3_positions(self, address, timeout, proxy, session):
+        """Check if address owns any Uniswap V3 NFT positions."""
+        # Uniswap V3 Positions NFT contract
+        uni_v3_nft = "0xC36442b4a4522E871399CD717aBDD847Ab11FE88"
+        try:
+            # balanceOf(address)
+            data_hex = "0x70a08231" + "000000000000000000000000" + address[2:]
+            payload = {"jsonrpc": "2.0", "id": 1, "method": "eth_call",
+                       "params": [{"to": uni_v3_nft, "data": data_hex}, "latest"]}
+            resp = await self.fetch(session, "POST", "https://cloudflare-eth.com",
+                                    timeout=timeout, proxy=proxy,
+                                    json=payload, headers={"Content-Type": "application/json"})
+            if resp.status == 200:
+                d = await resp.json(); resp.close()
+                raw = d.get("result", "0x0")
+                count = int(raw, 16)
+                if count > 0:
+                    return f"Uniswap V3: {count} positions"
+            else:
+                resp.close()
+        except Exception:
+            pass
+        return ""
 
     # ── Point 3 — NFT check ────────────────────────────────────────────────────
     async def _check_nft(self, address, timeout, proxy, session):
