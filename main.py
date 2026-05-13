@@ -823,37 +823,75 @@ class MultiCheckerApp(ctk.CTk):
             return default
 
     def _normalize(self, line, tab):
+        """
+        Supports formats:
+          email:pass
+          login:pass
+          url:login:pass
+          url|login|pass
+          https://site.com:login:pass
+          https://site.com/path:login:pass
+        """
         raw = line.strip()
         if not raw:
             return ""
         try:
+            # Crypto fast-path: plain wallet address
             if tab == "Crypto" and ":" not in raw and "/" not in raw and "|" not in raw:
                 return raw
+
+            # Normalise separator: replace | with :
+            cleaned = raw.replace("|", ":")
+
+            # ── Email: always extract email pattern first ──────────────────
             if tab == "Email":
-                m = re.search(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}", raw)
+                m = re.search(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}", cleaned)
                 if m:
                     return m.group(0)
-            url_m = re.search(r"https?://[^\s|:]+(?:/[^\s|]*)?", raw)
-            cleaned = raw.replace("|", ":")
-            if url_m:
-                try:
-                    parsed = urlparse(url_m.group(0))
-                    bits = [p for p in parsed.path.split("/") if p]
-                    if tab in {"Social", "Games", "AI", "Crypto"} and bits:
-                        return bits[-1]
-                except (ValueError, TypeError):
-                    pass
+
+            # ── Parse url:login:pass or url|login|pass ─────────────────────
+            # Strip the URL part (http://... or https://...) to get remaining tokens
+            url_match = re.match(r"(https?://[^\s:]+)", cleaned)
+            if url_match:
+                url_part = url_match.group(1)
+                rest = cleaned[len(url_part):]          # ":login:pass" or ""
+                rest_tokens = [t.strip() for t in rest.split(":") if t.strip()]
+                # rest_tokens = [login, pass] typically
+                if tab == "Email":
+                    # look for email in rest tokens
+                    for t in rest_tokens:
+                        if "@" in t and "." in t.split("@")[-1]:
+                            return t
+                    return ""
+                if tab in {"Social", "Games", "AI"}:
+                    # login is first rest token (username)
+                    if rest_tokens:
+                        return rest_tokens[0]
+                    # fallback: last path segment of URL
+                    bits = [p for p in urlparse(url_part).path.split("/") if p]
+                    return bits[-1] if bits else ""
+                # For other tabs just return first rest token
+                if rest_tokens:
+                    return rest_tokens[0]
+
+            # ── Plain colon-separated: login:pass or email:pass ───────────
             tokens = [t.strip() for t in cleaned.split(":") if t.strip()
                       and t.strip() not in {"http", "https", "//"}]
+
             if tab == "Email":
                 for t in tokens:
                     if "@" in t and "." in t.split("@")[-1]:
                         return t
-            if tab in {"Social", "Games", "AI", "Crypto"}:
+                return ""
+
+            if tab in {"Social", "Games", "AI"}:
+                # Prefer token without dots (username, not domain)
                 cands = [t for t in tokens
                          if not t.lower().startswith("http") and "." not in t]
                 if cands:
-                    return cands[0] if len(cands) == 1 else cands[-2]
+                    return cands[0]
+                return tokens[0] if tokens else raw
+
             return tokens[0] if tokens else raw
         except Exception:
             return raw
@@ -1276,3 +1314,4 @@ class MultiCheckerApp(ctk.CTk):
 if __name__ == "__main__":
     app = MultiCheckerApp()
     app.mainloop()
+
