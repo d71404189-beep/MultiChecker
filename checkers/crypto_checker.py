@@ -29,54 +29,54 @@ class CryptoChecker(BaseChecker):
 
         self.auth_info = {
             "bitcoin": {
-                "auth_type": "РџСЂРёРІР°С‚РЅС‹Р№ РєР»СЋС‡ / Seed-С„СЂР°Р·Р°",
+                "auth_type": "Private Key / Seed Phrase",
                 "wallets": "Electrum, Exodus, Trust Wallet, Ledger",
-                "how": "РРјРїРѕСЂС‚РёСЂСѓР№ РїСЂРёРІР°С‚РЅС‹Р№ РєР»СЋС‡ РёР»Рё seed-С„СЂР°Р·Сѓ РІ РєРѕС€РµР»С‘Рє (Electrum / Exodus / Trust Wallet)",
+                "how": "Import private key or seed phrase into Electrum / Exodus / Trust Wallet",
             },
             "ethereum": {
-                "auth_type": "РџСЂРёРІР°С‚РЅС‹Р№ РєР»СЋС‡ / Seed-С„СЂР°Р·Р° / Keystore",
+                "auth_type": "Private Key / Seed Phrase / Keystore",
                 "wallets": "MetaMask, Trust Wallet, Rabby, Ledger",
-                "how": "РРјРїРѕСЂС‚РёСЂСѓР№ РїСЂРёРІР°С‚РЅС‹Р№ РєР»СЋС‡ РІ MetaMask (РќР°СЃС‚СЂРѕР№РєРё в†’ РРјРїРѕСЂС‚ Р°РєРєР°СѓРЅС‚Р°)",
+                "how": "Import private key into MetaMask (Settings -> Import account)",
             },
             "solana": {
-                "auth_type": "РџСЂРёРІР°С‚РЅС‹Р№ РєР»СЋС‡ / Seed-С„СЂР°Р·Р°",
+                "auth_type": "Private Key / Seed Phrase",
                 "wallets": "Phantom, Solflare, Backpack",
-                "how": "РЈСЃС‚Р°РЅРѕРІРё Phantom (phantom.app), РІС‹Р±РµСЂРё 'РРјРїРѕСЂС‚РёСЂРѕРІР°С‚СЊ РїСЂРёРІР°С‚РЅС‹Р№ РєР»СЋС‡' Рё РІСЃС‚Р°РІСЊ РєР»СЋС‡",
+                "how": "Install Phantom (phantom.app), choose Import private key and paste the key",
             },
             "tron": {
-                "auth_type": "РџСЂРёРІР°С‚РЅС‹Р№ РєР»СЋС‡ / Seed-С„СЂР°Р·Р°",
+                "auth_type": "Private Key / Seed Phrase",
                 "wallets": "TronLink, Trust Wallet, Ledger",
-                "how": "РЈСЃС‚Р°РЅРѕРІРё TronLink, РІС‹Р±РµСЂРё 'РРјРїРѕСЂС‚ РєРѕС€РµР»СЊРєР°' Рё РІСЃС‚Р°РІСЊ РїСЂРёРІР°С‚РЅС‹Р№ РєР»СЋС‡",
+                "how": "Install TronLink, choose Import wallet and paste the private key",
             },
             "litecoin": {
-                "auth_type": "РџСЂРёРІР°С‚РЅС‹Р№ РєР»СЋС‡ / Seed-С„СЂР°Р·Р°",
+                "auth_type": "Private Key / Seed Phrase",
                 "wallets": "Electrum-LTC, Exodus, Trust Wallet",
-                "how": "РРјРїРѕСЂС‚РёСЂСѓР№ РїСЂРёРІР°С‚РЅС‹Р№ РєР»СЋС‡ РІ Electrum-LTC РёР»Рё Exodus",
+                "how": "Import private key into Electrum-LTC or Exodus",
             },
             "dash": {
-                "auth_type": "РџСЂРёРІР°С‚РЅС‹Р№ РєР»СЋС‡ / Seed-С„СЂР°Р·Р°",
+                "auth_type": "Private Key / Seed Phrase",
                 "wallets": "Dash Core, Exodus, Trust Wallet",
-                "how": "РРјРїРѕСЂС‚РёСЂСѓР№ РїСЂРёРІР°С‚РЅС‹Р№ РєР»СЋС‡ РІ Dash Core (РљРѕРЅСЃРѕР»СЊ: importprivkey <РєР»СЋС‡>)",
+                "how": "Import private key into Dash Core (Console: importprivkey <key>)",
             },
             "monero": {
-                "auth_type": "Seed-С„СЂР°Р·Р° (25 СЃР»РѕРІ) / РџСЂРёРІР°С‚РЅС‹Рµ РєР»СЋС‡Рё (spend + view)",
+                "auth_type": "Seed Phrase (25 words) / Private Keys (spend + view)",
                 "wallets": "Monero GUI, Cake Wallet, Feather Wallet",
-                "how": "Р’ Monero GUI РІС‹Р±РµСЂРё 'Р’РѕСЃСЃС‚Р°РЅРѕРІРёС‚СЊ РєРѕС€РµР»С‘Рє РёР· seed' Рё РІРІРµРґРё 25 СЃР»РѕРІ",
+                "how": "In Monero GUI choose Restore wallet from seed and enter 25 words",
             },
             "ripple": {
-                "auth_type": "РџСЂРёРІР°С‚РЅС‹Р№ РєР»СЋС‡ / Seed-С„СЂР°Р·Р° / Family Seed",
+                "auth_type": "Private Key / Seed Phrase / Family Seed",
                 "wallets": "XUMM (Xaman), Trust Wallet, Ledger",
-                "how": "РЈСЃС‚Р°РЅРѕРІРё XUMM, РІС‹Р±РµСЂРё 'РРјРїРѕСЂС‚' Рё РІРІРµРґРё Family Seed РёР»Рё РјРЅРµРјРѕРЅРёС‡РµСЃРєСѓСЋ С„СЂР°Р·Сѓ",
+                "how": "Install XUMM, choose Import and enter Family Seed or mnemonic phrase",
             },
             "dogecoin": {
-                "auth_type": "РџСЂРёРІР°С‚РЅС‹Р№ РєР»СЋС‡ / Seed-С„СЂР°Р·Р°",
+                "auth_type": "Private Key / Seed Phrase",
                 "wallets": "Dogecoin Core, Exodus, Trust Wallet",
-                "how": "РРјРїРѕСЂС‚РёСЂСѓР№ РїСЂРёРІР°С‚РЅС‹Р№ РєР»СЋС‡ РІ Exodus РёР»Рё Dogecoin Core",
+                "how": "Import private key into Exodus or Dogecoin Core",
             },
             "bnb": {
-                "auth_type": "РџСЂРёРІР°С‚РЅС‹Р№ РєР»СЋС‡ / Seed-С„СЂР°Р·Р°",
+                "auth_type": "Private Key / Seed Phrase",
                 "wallets": "Trust Wallet, MetaMask (BSC), Binance Chain Wallet",
-                "how": "РРјРїРѕСЂС‚РёСЂСѓР№ seed-С„СЂР°Р·Сѓ РІ Trust Wallet РёР»Рё РґРѕР±Р°РІСЊ BSC СЃРµС‚СЊ РІ MetaMask",
+                "how": "Import seed phrase into Trust Wallet or add BSC network in MetaMask",
             },
         }
 
