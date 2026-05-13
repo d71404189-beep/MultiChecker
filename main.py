@@ -14,7 +14,7 @@ from urllib.parse import urlparse
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-APP_VERSION = "1.0.36"
+APP_VERSION = "1.0.37"
 
 if platform.system() == "Windows":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -291,6 +291,13 @@ class MultiCheckerApp(ctk.CTk):
                            command=lambda f=fmt: self.export_results(w, f)
                            ).pack(side="left", padx=2, pady=4)
 
+        # Export with balance button
+        ctk.CTkButton(eg, text="$", fg_color="transparent",
+                       hover_color=HOVER, font=("Segoe UI", 11, "bold"),
+                       text_color=GREEN, corner_radius=6, height=30, width=36,
+                       command=lambda: self.export_balance_only(w)
+                       ).pack(side="left", padx=2, pady=4)
+
         btn(bf, "◈  Стат", PURPLE, "#a371f7",
             lambda: self.show_stats(tab_name), 110).pack(side="right")
 
@@ -333,7 +340,8 @@ class MultiCheckerApp(ctk.CTk):
         w["filter_seg"] = ctk.CTkSegmentedButton(
             ff,
             values=[i18n.t("filter_all"), i18n.t("filter_valid"),
-                    i18n.t("filter_invalid"), i18n.t("filter_errors")],
+                    i18n.t("filter_invalid"), i18n.t("filter_errors"),
+                    i18n.t("filter_balance")],
             font=("Segoe UI", 12),
             selected_color=ACCENT, selected_hover_color="#4393e4",
             unselected_color=CARD, unselected_hover_color=HOVER,
@@ -381,8 +389,9 @@ class MultiCheckerApp(ctk.CTk):
     def _refresh_text(self):
         self.title(f"MultiChecker Pro  v{APP_VERSION}")
         fl = [i18n.t("filter_all"), i18n.t("filter_valid"),
-              i18n.t("filter_invalid"), i18n.t("filter_errors")]
-        fk = ["all", "valid", "invalid", "error"]
+              i18n.t("filter_invalid"), i18n.t("filter_errors"),
+              i18n.t("filter_balance")]
+        fk = ["all", "valid", "invalid", "error", "balance"]
         for tab_name, w in self.tab_widgets.items():
             w["pill"].configure(text=f"● {i18n.t('ready')}")
             w["filter_seg"].configure(values=fl)
@@ -443,6 +452,50 @@ class MultiCheckerApp(ctk.CTk):
                     for r in self.results:
                         f.write(json.dumps(r, ensure_ascii=False) + "\n")
             self.log(w, i18n.t("exported").format(fn))
+        except Exception as e:
+            self.log(w, f"Export error: {e}")
+
+    def export_balance_only(self, w):
+        """Export only results that have a non-zero balance (crypto wallets with funds)."""
+        balance_results = []
+        for r in self.all_results:
+            if not r:
+                continue
+            info = r.get("info", {})
+            # Check for any balance field > 0
+            has_balance = False
+            for key, val in info.items():
+                if key.startswith("balance_") and isinstance(val, (int, float)) and val > 0:
+                    has_balance = True
+                    break
+            # Also check nested balances (seed checker)
+            if not has_balance and "balances" in info:
+                for coin_data in info["balances"].values():
+                    if isinstance(coin_data, dict) and coin_data.get("balance", 0) > 0:
+                        has_balance = True
+                        break
+            # Also check total_usd
+            if not has_balance and info.get("total_usd", 0) > 0:
+                has_balance = True
+            # Also check chains (privkey multichain)
+            if not has_balance and "chains" in info:
+                for chain_data in info["chains"].values():
+                    if isinstance(chain_data, dict) and chain_data.get("balance", 0) > 0:
+                        has_balance = True
+                        break
+            if has_balance:
+                balance_results.append(r)
+
+        if not balance_results:
+            self.log(w, i18n.t("no_balance_results"))
+            return
+
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        fn = f"balance_{ts}.json"
+        try:
+            with open(fn, "w", encoding="utf-8") as f:
+                json.dump(balance_results, f, indent=2, ensure_ascii=False)
+            self.log(w, i18n.t("exported_balance").format(len(balance_results), fn))
         except Exception as e:
             self.log(w, f"Export error: {e}")
 
@@ -868,7 +921,10 @@ class MultiCheckerApp(ctk.CTk):
         ll.append((tag, msg))
         if len(ll) > _MAX_LOG_LINES:
             w["_log_lines"] = ll[-_MAX_LOG_LINES:]
-        if w.get("_filter","all") in ("all", tag):
+        cur_filter = w.get("_filter", "all")
+        if cur_filter in ("all", tag):
+            self._log_safe(w, msg, tag)
+        elif cur_filter == "balance" and tag == "valid" and "(empty)" not in msg:
             self._log_safe(w, msg, tag)
 
     def _on_filter(self, w, value):
@@ -877,6 +933,7 @@ class MultiCheckerApp(ctk.CTk):
             i18n.t("filter_valid"):   "valid",
             i18n.t("filter_invalid"): "invalid",
             i18n.t("filter_errors"):  "error",
+            i18n.t("filter_balance"): "balance",
         }
         ft = mapping.get(value, "all")
         w["_filter"] = ft
@@ -884,6 +941,10 @@ class MultiCheckerApp(ctk.CTk):
         for tag, line in w.get("_log_lines", []):
             if ft == "all" or tag == ft or tag == "system":
                 self._log_safe(w, line, tag)
+            elif ft == "balance" and tag == "valid" and ("Balance:" in line or "balance" in line.lower()):
+                # Show only lines that mention a non-zero balance
+                if "(empty)" not in line:
+                    self._log_safe(w, line, tag)
 
     def stop_check(self):
         self.is_running = False

@@ -101,10 +101,11 @@ class CryptoChecker(BaseChecker):
 
     def _whale_label(self, total_usd):
         """Return whale alert label based on total USD value."""
+        import i18n
         if total_usd >= 10000:
-            return " | \U0001f40b WHALE"
+            return f" | \U0001f40b {i18n.t('whale')}"
         elif total_usd >= 1000:
-            return " | \U0001f4b0 High Value"
+            return f" | \U0001f4b0 {i18n.t('high_value')}"
         return ""
 
     # ═══════════════════════════════════════════════════════════════════════════

@@ -54,6 +54,12 @@ LANG = {
         "no_data_to_dedup": "No data loaded to deduplicate!",
         "dedup_result": "Removed {} duplicates ({} unique lines remain)",
         "dedup_no_dupes": "No duplicates found ({} lines)",
+        "filter_balance": "With Balance",
+        "whale": "WHALE",
+        "high_value": "High Value",
+        "export_balance": "Export Balance",
+        "no_balance_results": "No results with balance to export!",
+        "exported_balance": "Exported {} accounts with balance to {}",
     },
     "ru": {
         "title": "Multi Checker Pro",
@@ -110,6 +116,12 @@ LANG = {
         "no_data_to_dedup": "Нет данных для удаления дубликатов!",
         "dedup_result": "Удалено {} дубликатов (осталось {} уникальных строк)",
         "dedup_no_dupes": "Дубликатов не найдено ({} строк)",
+        "filter_balance": "С балансом",
+        "whale": "КИТ",
+        "high_value": "Жирный",
+        "export_balance": "Экспорт с балансом",
+        "no_balance_results": "Нет аккаунтов с балансом для экспорта!",
+        "exported_balance": "Экспортировано {} акков с балансом в {}",
     }
 }
 
