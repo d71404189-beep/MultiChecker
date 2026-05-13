@@ -14,7 +14,7 @@ from urllib.parse import urlparse
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-APP_VERSION = "1.0.37"
+APP_VERSION = "1.0.38"
 
 if platform.system() == "Windows":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -261,6 +261,34 @@ class MultiCheckerApp(ctk.CTk):
                                    corner_radius=8,
                                    placeholder_text="http://ip:port  или  proxy.txt")
         w["proxy"].grid(row=0, column=6, sticky="ew")
+
+        # ── Telegram notification settings (Feature 7) ───────────────────────
+        tg_row = ctk.CTkFrame(sc, fg_color="transparent")
+        tg_row.grid(row=2, column=0, padx=12, pady=(2, 12), sticky="ew")
+        tg_row.grid_columnconfigure(1, weight=1)
+        tg_row.grid_columnconfigure(4, weight=1)
+
+        ctk.CTkLabel(tg_row, text=i18n.t("tg_token"), font=("Segoe UI", 12),
+                     text_color=MUTED).grid(row=0, column=0, padx=(0, 6), sticky="w")
+        w["tg_token"] = ctk.CTkEntry(tg_row, width=180, font=("Segoe UI", 12),
+                                      fg_color=CARD2, border_color=BORDER,
+                                      text_color=TEXT, corner_radius=8,
+                                      placeholder_text="123456:ABC-DEF...")
+        w["tg_token"].grid(row=0, column=1, padx=(0, 18), sticky="ew")
+
+        ctk.CTkLabel(tg_row, text=i18n.t("tg_chat_id"), font=("Segoe UI", 12),
+                     text_color=MUTED).grid(row=0, column=2, padx=(0, 6), sticky="w")
+        w["tg_chat_id"] = ctk.CTkEntry(tg_row, width=120, font=("Segoe UI", 12),
+                                        fg_color=CARD2, border_color=BORDER,
+                                        text_color=TEXT, corner_radius=8,
+                                        placeholder_text="-100123456")
+        w["tg_chat_id"].grid(row=0, column=3, padx=(0, 18), sticky="w")
+
+        w["tg_enabled"] = ctk.CTkSwitch(
+            tg_row, text=i18n.t("tg_enabled"), font=("Segoe UI", 12),
+            button_color=ACCENT, progress_color=ACCENT, text_color=MUTED,
+        )
+        w["tg_enabled"].grid(row=0, column=4, sticky="w")
 
         # ── Action buttons ───────────────────────────────────────────────────
         bf = ctk.CTkFrame(body, fg_color="transparent")
@@ -549,6 +577,69 @@ class MultiCheckerApp(ctk.CTk):
             return int(v)
         except (TypeError, ValueError):
             return default
+
+    def _estimate_usd(self, result):
+        """Estimate USD value from a result dict for sorting (Feature 1)."""
+        if not result:
+            return 0.0
+        info = result.get("info", {})
+        # Direct total_usd field
+        total = info.get("total_usd", 0)
+        if total:
+            return float(total)
+        # Token USD
+        total += info.get("token_usd", 0)
+        # Try balance fields with approximate prices
+        _approx_prices = {
+            "balance_btc": 60000, "balance_eth": 3000, "balance_sol": 150,
+            "balance_bnb": 600, "balance_trx": 0.12, "balance_ltc": 80,
+            "balance_xrp": 0.6, "balance_doge": 0.15, "balance_ada": 0.5,
+            "balance_ton": 6, "balance_dash": 30,
+        }
+        for key, price in _approx_prices.items():
+            val = info.get(key, 0)
+            if val:
+                total += float(val) * price
+        # Check nested balances (seed checker)
+        if "balances" in info:
+            for coin_data in info["balances"].values():
+                if isinstance(coin_data, dict):
+                    bal = coin_data.get("balance", 0)
+                    if bal:
+                        total += float(bal)  # rough
+        # Check chains (privkey multichain)
+        if "chains" in info:
+            for chain_data in info["chains"].values():
+                if isinstance(chain_data, dict):
+                    usd_val = chain_data.get("usd", 0)
+                    if usd_val:
+                        total += float(usd_val)
+        return total
+
+    def _notify_telegram(self, w, msg):
+        """Send Telegram notification (Feature 7)."""
+        token = w.get("tg_token")
+        chat_id = w.get("tg_chat_id")
+        if not token or not chat_id:
+            return
+        token_val = token.get().strip()
+        chat_id_val = chat_id.get().strip()
+        if not token_val or not chat_id_val:
+            return
+        # Check if enabled
+        enabled = w.get("tg_enabled")
+        if enabled and not enabled.get():
+            return
+        import urllib.request
+        import urllib.parse
+        try:
+            url = f"https://api.telegram.org/bot{token_val}/sendMessage"
+            data = urllib.parse.urlencode({"chat_id": chat_id_val, "text": msg, "parse_mode": "HTML"}).encode()
+            req = urllib.request.Request(url, data=data, method="POST")
+            urllib.request.urlopen(req, timeout=5)
+            self.after(0, lambda: self.log(w, i18n.t("tg_sent")))
+        except Exception as e:
+            self.after(0, lambda: self.log(w, i18n.t("tg_error").format(str(e)[:60])))
 
     def _normalize(self, line, tab):
         """
@@ -858,6 +949,25 @@ class MultiCheckerApp(ctk.CTk):
         self.all_results = [r for r in results if r]
         self.results     = [r for r in self.all_results if r.get("exists")]
         del results
+
+        # Feature 1 — Auto-sort results by estimated USD value descending
+        self.results.sort(key=lambda r: self._estimate_usd(r), reverse=True)
+
+        # Feature 7 — Telegram notifications for high-value results
+        for r in self.results:
+            est = self._estimate_usd(r)
+            if est > 100:
+                inp = r.get("input", "")[:30]
+                msg_text = r.get("info", {}).get("message", "")
+                tg_msg = f"<b>💰 Balance found!</b>\n{inp}\n{msg_text[:200]}\nUSD: ~${est:,.2f}"
+                self._notify_telegram(w, tg_msg)
+
+        # Feature 6 — Summary line: accounts with balance and total portfolio
+        total_portfolio = sum(self._estimate_usd(r) for r in self.results)
+        if self.results:
+            summary = i18n.t("summary_line").format(len(self.results), f"{total_portfolio:,.2f}")
+            self.after(0, lambda s=summary: self.log_tagged(w, "system", s))
+
         vv,iv,ev = valid[0],inv[0],err[0]
         self.after(0, lambda: self._update_counters(w,vv,iv,ev,total))
         self.after(0, lambda: w["pill"].configure(

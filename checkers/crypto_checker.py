@@ -33,6 +33,22 @@ _SEED_RE = re.compile(r'^([a-z]+\s){11,23}[a-z]+$', re.IGNORECASE)
 
 _WALLET_FIRST_CHARS = frozenset('bB013456789LMlTXrDdEUa')
 
+# ── Exchange API key patterns (Feature 2) ──────────────────────────────────────
+_EXCHANGE_API_RE = re.compile(r'^[a-zA-Z0-9]{32,64}:[a-zA-Z0-9]{32,64}$')
+_EXCHANGE_KEYWORDS = ["binance", "bybit", "okx", "huobi", "kucoin", "gate", "mexc", "bitget"]
+
+# ── Token symbol -> CoinGecko ID mapping (Feature 3) ──────────────────────────
+_TOKEN_COINGECKO_MAP = {
+    "USDT": "tether",
+    "USDC": "usd-coin",
+    "DAI": "dai",
+    "LINK": "chainlink",
+    "UNI": "uniswap",
+    "SHIB": "shiba-inu",
+    "PEPE": "pepe",
+    "WETH": "weth",
+}
+
 # ── Price cache ────────────────────────────────────────────────────────────────
 _PRICE_CACHE: dict = {}
 _PRICE_CACHE_TS: float = 0.0
@@ -232,6 +248,11 @@ class CryptoChecker(BaseChecker):
             if resolved:
                 return await self._check_ethereum(resolved, timeout, proxy, session)
 
+        # ── Feature 2 — Exchange API key detection ────────────────────────────
+        exchange_api = self._detect_exchange_api(data)
+        if exchange_api:
+            return self._make_exchange_api_result(data, exchange_api)
+
         result = self.make_result(input=data, type="unknown")
         result["info"]["error"] = "Unknown crypto format"
         return result
@@ -272,6 +293,107 @@ class CryptoChecker(BaseChecker):
         except Exception:
             pass
         return None
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    #  FEATURE 2 — EXCHANGE API KEY DETECTION
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    def _detect_exchange_api(self, data):
+        """Detect exchange API key format: key:secret with exchange keyword."""
+        dl = data.lower()
+        # Check if data contains exchange keywords
+        detected_exchange = None
+        for kw in _EXCHANGE_KEYWORDS:
+            if kw in dl:
+                detected_exchange = kw
+                break
+        if not detected_exchange:
+            return None
+        # Check for key:secret pattern (two parts, each 32-64 alphanumeric chars)
+        # The data might be like "binance:APIKEY:APISECRET" or "APIKEY:APISECRET binance"
+        parts = re.findall(r'[a-zA-Z0-9]{32,64}', data)
+        if len(parts) >= 2:
+            return detected_exchange
+        return None
+
+    def _make_exchange_api_result(self, data, exchange):
+        """Create result for detected exchange API key."""
+        import i18n
+        result = self.make_result(input=data[:20] + "...", type="exchange_api")
+        result["exists"] = True
+        result["platform"] = exchange
+        result["info"].update({
+            "exchange": exchange,
+            "message": f"{i18n.t('exchange_api_detected')}: {exchange.upper()} | API key pair found",
+            "total_usd": 0,
+        })
+        return result
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    #  FEATURE 3 — TOKEN PRICE LOOKUP
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    async def _get_token_prices(self, symbols, session, timeout):
+        """Get USD prices for token symbols via CoinGecko."""
+        if not symbols:
+            return {}
+        ids = []
+        symbol_to_id = {}
+        for sym in symbols:
+            cg_id = _TOKEN_COINGECKO_MAP.get(sym.upper())
+            if cg_id:
+                ids.append(cg_id)
+                symbol_to_id[sym.upper()] = cg_id
+        if not ids:
+            return {}
+        ids_str = ",".join(ids)
+        url = f"https://api.coingecko.com/api/v3/simple/price?ids={ids_str}&vs_currencies=usd"
+        try:
+            resp = await self.fetch(session, "GET", url, timeout=timeout, proxy=None)
+            if resp.status == 200:
+                d = await resp.json(); resp.close()
+                prices = {}
+                for sym, cg_id in symbol_to_id.items():
+                    prices[sym] = d.get(cg_id, {}).get("usd", 0)
+                return prices
+            resp.close()
+        except Exception:
+            pass
+        # Fallback: stablecoins are ~$1
+        fallback = {}
+        for sym in symbols:
+            su = sym.upper()
+            if su in ("USDT", "USDC", "DAI"):
+                fallback[su] = 1.0
+        return fallback
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    #  FEATURE 5 — ACTIVITY SCORE
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    async def _get_activity_score(self, address, timeout, proxy, session):
+        """Get activity score for an ETH address based on recent transactions."""
+        import i18n
+        try:
+            url = (f"https://api.etherscan.io/api?module=account&action=txlist"
+                   f"&address={address}&page=1&offset=10&sort=desc")
+            resp = await self.fetch(session, "GET", url, timeout=timeout, proxy=proxy)
+            if resp.status == 200:
+                d = await resp.json(); resp.close()
+                txs = d.get("result", [])
+                if isinstance(txs, list):
+                    count = len(txs)
+                    if count > 5:
+                        return i18n.t("activity_active")
+                    elif count >= 1:
+                        return i18n.t("activity_low")
+                    else:
+                        return i18n.t("activity_dormant")
+            else:
+                resp.close()
+        except Exception:
+            pass
+        return ""
 
 
     # ═══════════════════════════════════════════════════════════════════════════
@@ -326,14 +448,14 @@ class CryptoChecker(BaseChecker):
             except Exception as e:
                 errors.append(f"BTC Taproot derive: {e}")
 
-            # Feature 2 — ETH accounts 0-2 (m/44'/60'/acct'/0/0)
-            for acct_idx in range(3):
+            # Feature 2 — ETH address indexes 0-4 on account 0 (m/44'/60'/0'/0/0 through m/44'/60'/0'/0/4)
+            for addr_idx in range(5):
                 try:
-                    eth_ctx = Bip44.FromSeed(seed_bytes, Bip44Coins.ETHEREUM).Purpose().Coin().Account(acct_idx).Change(Bip44Changes.CHAIN_EXT).AddressIndex(0)
-                    key_name = f"ethereum_{acct_idx}"
+                    eth_ctx = Bip44.FromSeed(seed_bytes, Bip44Coins.ETHEREUM).Purpose().Coin().Account(0).Change(Bip44Changes.CHAIN_EXT).AddressIndex(addr_idx)
+                    key_name = f"ethereum_{addr_idx}"
                     derived[key_name] = eth_ctx.PublicKey().ToAddress()
                 except Exception as e:
-                    errors.append(f"ETH account {acct_idx} derive: {e}")
+                    errors.append(f"ETH address index {addr_idx} derive: {e}")
 
             # TRX (m/44'/195'/0'/0/0)
             try:
@@ -362,6 +484,8 @@ class CryptoChecker(BaseChecker):
             "ethereum_0":      self._check_ethereum,
             "ethereum_1":      self._check_ethereum,
             "ethereum_2":      self._check_ethereum,
+            "ethereum_3":      self._check_ethereum,
+            "ethereum_4":      self._check_ethereum,
             "tron":            self._check_tron,
             "solana":          self._check_solana,
         }
@@ -374,6 +498,8 @@ class CryptoChecker(BaseChecker):
             "ethereum_0":      "balance_eth",
             "ethereum_1":      "balance_eth",
             "ethereum_2":      "balance_eth",
+            "ethereum_3":      "balance_eth",
+            "ethereum_4":      "balance_eth",
             "tron":            "balance_trx",
             "solana":          "balance_sol",
         }
@@ -387,6 +513,8 @@ class CryptoChecker(BaseChecker):
             "ethereum_0":      "ethereum",
             "ethereum_1":      "ethereum",
             "ethereum_2":      "ethereum",
+            "ethereum_3":      "ethereum",
+            "ethereum_4":      "ethereum",
             "tron":            "tron",
             "solana":          "solana",
         }
@@ -643,6 +771,18 @@ class CryptoChecker(BaseChecker):
             last_tx = await self._get_last_tx_eth(address, timeout, proxy, session)
             # Feature 5 — approval checker
             approvals = await self._check_approvals(address, timeout, proxy, session)
+            # Feature 5 — activity score
+            activity = await self._get_activity_score(address, timeout, proxy, session)
+
+            # Feature 3 — token price lookup for total USD
+            token_prices = await self._get_token_prices(list(tokens.keys()), session, timeout)
+            total_token_usd = 0.0
+            for tk, tv in tokens.items():
+                tp = token_prices.get(tk.upper(), 0)
+                if tp:
+                    total_token_usd += tv * tp
+                elif tk.upper() in ("USDT", "USDC", "DAI"):
+                    total_token_usd += tv  # stablecoins fallback
 
             result["info"]["balance_eth"] = balance
             result["info"]["tokens"]      = tokens
@@ -650,27 +790,30 @@ class CryptoChecker(BaseChecker):
             result["info"]["staking"]     = staking
             result["info"]["last_tx"]     = last_tx
             result["info"]["approvals"]   = approvals
+            result["info"]["activity"]    = activity
+            result["info"]["token_usd"]   = total_token_usd
             result["exists"] = balance > 0 or bool(tokens) or bool(nfts) or bool(staking)
             usd = self._usd(balance, "ethereum", prices)
             msg = f"Balance: {balance:.6f} ETH{usd}"
             if tokens:  msg += "  |  Tokens: " + ", ".join(f"{v:.2f} {k}" for k,v in tokens.items() if v>0)
+            if total_token_usd > 0:
+                msg += f"  |  Tokens USD: ~${total_token_usd:,.2f}"
             if nfts:    msg += f"  |  NFTs: {nfts}"
             if staking: msg += "  |  Staking: " + ", ".join(f"{v:.4f} {k}" for k,v in staking.items())
             if last_tx: msg += f"  |  Last tx: {last_tx}"
             if approvals: msg += f"  |  Approvals: {', '.join(approvals)}"
+            if activity: msg += f"  |  Activity: {activity}"
             if not result["exists"]: msg += "  (empty)"
 
             # Feature 7 — whale label for ETH
-            total_eth_usd = balance * prices.get("ethereum", 0)
-            # Add token USD values (approximate: USDT/USDC are ~$1 each)
-            for tk, tv in tokens.items():
-                if tk in ("USDT", "USDC", "DAI"):
-                    total_eth_usd += tv
-                elif tk == "WETH":
-                    total_eth_usd += tv * prices.get("ethereum", 0)
+            total_eth_usd = balance * prices.get("ethereum", 0) + total_token_usd
+            # Add staking USD values
+            for sk, sv in staking.items():
+                total_eth_usd += sv * prices.get("ethereum", 0)
             whale = self._whale_label(total_eth_usd)
             msg += whale
 
+            result["info"]["total_usd"] = total_eth_usd
             result["info"]["message"] = msg
         else:
             result["info"]["error"] = "All ETH APIs failed"
