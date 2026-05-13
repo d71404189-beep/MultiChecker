@@ -14,7 +14,7 @@ from urllib.parse import urlparse
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-APP_VERSION = "1.0.32"
+APP_VERSION = "1.0.33"
 
 if platform.system() == "Windows":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -1314,6 +1314,7 @@ class MultiCheckerApp(ctk.CTk):
 if __name__ == "__main__":
     app = MultiCheckerApp()
     app.mainloop()
+
 
 
 

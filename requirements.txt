@@ -2,3 +2,7 @@ customtkinter==5.2.1
 aiohttp==3.9.1
 Pillow==10.1.0
 dnspython==2.4.2
+
+bip_utils==2.12.1
+eth_account==0.13.7
+mnemonic==0.21
