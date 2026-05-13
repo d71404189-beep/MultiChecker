@@ -50,8 +50,8 @@ _ERC20_TOKENS = {
     "PEPE":  ("0x6982508145454ce325ddbe47a25d4ec3d2311933", 18),
 }
 
-# ── TRC-20 tokens ──────────────────────────────────────────────────────────────
-_TRC20_TOKENS = {"USDT", "USDC"}
+# ── TRC-20 tokens (Feature 4 — expanded) ──────────────────────────────────────
+_TRC20_TOKENS = {"USDT", "USDC", "WTRX", "BTT", "JST", "SUN", "WIN"}
 
 # ── EVM chains for multichain scan ────────────────────────────────────────────
 _EVM_CHAINS = [
@@ -62,6 +62,16 @@ _EVM_CHAINS = [
     ("arbitrum",  "https://arb1.arbitrum.io/rpc",                  "ETH"),
     ("optimism",  "https://mainnet.optimism.io",                   "ETH"),
 ]
+
+# ── DEX routers for approval checking (Feature 5) ─────────────────────────────
+_DEX_ROUTERS = {
+    "Uniswap V2": "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D",
+    "Uniswap V3": "0xE592427A0AEce92De3Edee1F18E0157C05861564",
+    "1inch":      "0x1111111254EEB25477B68fb85Ed929f73A960582",
+}
+
+# USDT contract for allowance checks
+_USDT_CONTRACT = "0xdac17f958d2ee523a2206206994597c13d831ec7"
 
 
 class CryptoChecker(BaseChecker):
@@ -84,6 +94,18 @@ class CryptoChecker(BaseChecker):
             "dogecoin":  {"auth_type":"Private Key / Seed Phrase","wallets":"Dogecoin Core, Exodus, Trust Wallet","how":"Import private key into Exodus or Dogecoin Core"},
             "bnb":       {"auth_type":"Private Key / Seed Phrase","wallets":"Trust Wallet, MetaMask (BSC), Binance Chain Wallet","how":"Import seed phrase into Trust Wallet or add BSC network in MetaMask"},
         }
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    #  FEATURE 7 — WHALE ALERT LABEL
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    def _whale_label(self, total_usd):
+        """Return whale alert label based on total USD value."""
+        if total_usd >= 10000:
+            return " | \U0001f40b WHALE"
+        elif total_usd >= 1000:
+            return " | \U0001f4b0 High Value"
+        return ""
 
     # ═══════════════════════════════════════════════════════════════════════════
     #  PRICE CACHE  (point 6 — USD equivalent)
@@ -198,12 +220,61 @@ class CryptoChecker(BaseChecker):
                                        f"Pass: {password}" if password else ""]))})
             return result
 
+        # ── Feature 6 — ENS / .crypto domain resolve ──────────────────────────
+        if data.endswith(".eth"):
+            resolved = await self._resolve_ens(data, timeout, proxy, session)
+            if resolved:
+                return await self._check_ethereum(resolved, timeout, proxy, session)
+
+        if data.endswith((".crypto", ".nft", ".wallet")):
+            resolved = await self._resolve_unstoppable(data, timeout, proxy, session)
+            if resolved:
+                return await self._check_ethereum(resolved, timeout, proxy, session)
+
         result = self.make_result(input=data, type="unknown")
         result["info"]["error"] = "Unknown crypto format"
         return result
 
     # ═══════════════════════════════════════════════════════════════════════════
-    #  POINT 1 — SEED PHRASE
+    #  FEATURE 6 — ENS / UNSTOPPABLE DOMAINS RESOLVE
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    async def _resolve_ens(self, name, timeout, proxy, session):
+        """Resolve ENS name to Ethereum address via ensideas API."""
+        try:
+            url = f"https://api.ensideas.com/ens/resolve/{name}"
+            resp = await self.fetch(session, "GET", url, timeout=timeout, proxy=proxy)
+            if resp.status == 200:
+                d = await resp.json(); resp.close()
+                address = d.get("address", "")
+                if address and address.startswith("0x") and len(address) == 42:
+                    return address
+            else:
+                resp.close()
+        except Exception:
+            pass
+        return None
+
+    async def _resolve_unstoppable(self, name, timeout, proxy, session):
+        """Resolve Unstoppable Domains (.crypto, .nft, .wallet) to ETH address."""
+        try:
+            url = f"https://resolve.unstoppabledomains.com/domains/{name}"
+            resp = await self.fetch(session, "GET", url, timeout=timeout, proxy=proxy)
+            if resp.status == 200:
+                d = await resp.json(); resp.close()
+                records = d.get("records", {})
+                address = records.get("crypto.ETH.address", "")
+                if address and address.startswith("0x") and len(address) == 42:
+                    return address
+            else:
+                resp.close()
+        except Exception:
+            pass
+        return None
+
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    #  POINT 1 — SEED PHRASE (Features 1 & 2: BTC Segwit/Taproot + Multi-account)
     # ═══════════════════════════════════════════════════════════════════════════
 
     async def _check_seed(self, phrase, timeout, proxy, session):
@@ -216,7 +287,8 @@ class CryptoChecker(BaseChecker):
         try:
             from bip_utils import (Bip39MnemonicValidator, Bip39SeedGenerator,
                                    Bip44, Bip44Coins, Bip44Changes,
-                                   Bip49, Bip49Coins, Bip84, Bip84Coins)
+                                   Bip49, Bip49Coins, Bip84, Bip84Coins,
+                                   Bip86, Bip86Coins)
             from eth_account import Account
 
             if not Bip39MnemonicValidator().IsValid(phrase):
@@ -225,19 +297,42 @@ class CryptoChecker(BaseChecker):
 
             seed_bytes = Bip39SeedGenerator(phrase).Generate()
 
-            # BTC (m/44'/0'/0'/0/0)
+            # BTC Legacy (m/44'/0'/0'/0/0)
             try:
                 btc_ctx = Bip44.FromSeed(seed_bytes, Bip44Coins.BITCOIN).Purpose().Coin().Account(0).Change(Bip44Changes.CHAIN_EXT).AddressIndex(0)
                 derived["bitcoin"] = btc_ctx.PublicKey().ToAddress()
             except Exception as e:
                 errors.append(f"BTC derive: {e}")
 
-            # ETH (m/44'/60'/0'/0/0)
+            # Feature 1 — BTC Segwit Native (m/84'/0'/0'/0/0) -> bc1q...
             try:
-                eth_ctx = Bip44.FromSeed(seed_bytes, Bip44Coins.ETHEREUM).Purpose().Coin().Account(0).Change(Bip44Changes.CHAIN_EXT).AddressIndex(0)
-                derived["ethereum"] = eth_ctx.PublicKey().ToAddress()
+                btc_segwit_ctx = Bip84.FromSeed(seed_bytes, Bip84Coins.BITCOIN).Purpose().Coin().Account(0).Change(Bip44Changes.CHAIN_EXT).AddressIndex(0)
+                derived["bitcoin_segwit"] = btc_segwit_ctx.PublicKey().ToAddress()
             except Exception as e:
-                errors.append(f"ETH derive: {e}")
+                errors.append(f"BTC Segwit derive: {e}")
+
+            # Feature 1 — BTC Nested Segwit (m/49'/0'/0'/0/0) -> 3...
+            try:
+                btc_nested_ctx = Bip49.FromSeed(seed_bytes, Bip49Coins.BITCOIN).Purpose().Coin().Account(0).Change(Bip44Changes.CHAIN_EXT).AddressIndex(0)
+                derived["bitcoin_nested"] = btc_nested_ctx.PublicKey().ToAddress()
+            except Exception as e:
+                errors.append(f"BTC Nested Segwit derive: {e}")
+
+            # Feature 1 — BTC Taproot (m/86'/0'/0'/0/0) -> bc1p...
+            try:
+                btc_taproot_ctx = Bip86.FromSeed(seed_bytes, Bip86Coins.BITCOIN).Purpose().Coin().Account(0).Change(Bip44Changes.CHAIN_EXT).AddressIndex(0)
+                derived["bitcoin_taproot"] = btc_taproot_ctx.PublicKey().ToAddress()
+            except Exception as e:
+                errors.append(f"BTC Taproot derive: {e}")
+
+            # Feature 2 — ETH accounts 0-2 (m/44'/60'/acct'/0/0)
+            for acct_idx in range(3):
+                try:
+                    eth_ctx = Bip44.FromSeed(seed_bytes, Bip44Coins.ETHEREUM).Purpose().Coin().Account(acct_idx).Change(Bip44Changes.CHAIN_EXT).AddressIndex(0)
+                    key_name = f"ethereum_{acct_idx}"
+                    derived[key_name] = eth_ctx.PublicKey().ToAddress()
+                except Exception as e:
+                    errors.append(f"ETH account {acct_idx} derive: {e}")
 
             # TRX (m/44'/195'/0'/0/0)
             try:
@@ -257,18 +352,49 @@ class CryptoChecker(BaseChecker):
             result["info"]["error"] = f"Seed derive error: {e}"
             return result
 
-        # Check all derived addresses concurrently
-        tasks = {}
+        # Map derived keys to handlers and balance keys
         handlers = {
-            "bitcoin":  self._check_bitcoin,
-            "ethereum": self._check_ethereum,
-            "tron":     self._check_tron,
-            "solana":   self._check_solana,
+            "bitcoin":         self._check_bitcoin,
+            "bitcoin_segwit":  self._check_bitcoin,
+            "bitcoin_nested":  self._check_bitcoin,
+            "bitcoin_taproot": self._check_bitcoin,
+            "ethereum_0":      self._check_ethereum,
+            "ethereum_1":      self._check_ethereum,
+            "ethereum_2":      self._check_ethereum,
+            "tron":            self._check_tron,
+            "solana":          self._check_solana,
         }
+
+        _bal_keys = {
+            "bitcoin":         "balance_btc",
+            "bitcoin_segwit":  "balance_btc",
+            "bitcoin_nested":  "balance_btc",
+            "bitcoin_taproot": "balance_btc",
+            "ethereum_0":      "balance_eth",
+            "ethereum_1":      "balance_eth",
+            "ethereum_2":      "balance_eth",
+            "tron":            "balance_trx",
+            "solana":          "balance_sol",
+        }
+
+        # Price mapping for each derived key
+        _price_keys = {
+            "bitcoin":         "bitcoin",
+            "bitcoin_segwit":  "bitcoin",
+            "bitcoin_nested":  "bitcoin",
+            "bitcoin_taproot": "bitcoin",
+            "ethereum_0":      "ethereum",
+            "ethereum_1":      "ethereum",
+            "ethereum_2":      "ethereum",
+            "tron":            "tron",
+            "solana":          "solana",
+        }
+
+        # Check all derived addresses concurrently
+        check_items = [(coin, addr) for coin, addr in derived.items() if coin in handlers]
         check_results = await asyncio.gather(*[
             handlers[coin](addr, timeout, proxy, session)
-            for coin, addr in derived.items()
-            if coin in handlers
+            for coin, addr in check_items
         ], return_exceptions=True)
 
         total_usd = 0.0
@@ -276,12 +402,7 @@ class CryptoChecker(BaseChecker):
         result["info"]["addresses"] = derived
         result["info"]["balances"]  = {}
 
-        _bal_keys = {"bitcoin": "balance_btc", "ethereum": "balance_eth",
-                     "tron": "balance_trx", "solana": "balance_sol"}
-        for (coin, addr), res in zip(
-            [(c, a) for c, a in derived.items() if c in handlers],
-            check_results
-        ):
+        for (coin, addr), res in zip(check_items, check_results):
             if isinstance(res, Exception):
                 continue
             bal_key = _bal_keys.get(coin, f"balance_{coin[:3].lower()}")
@@ -291,20 +412,26 @@ class CryptoChecker(BaseChecker):
                 "balance": bal,
                 "message": res.get("info", {}).get("message", ""),
             }
-            price = prices.get(coin, 0)
+            price_key = _price_keys.get(coin, coin)
+            price = prices.get(price_key, 0)
             total_usd += bal * price
             if bal > 0:
                 found_coins.append(coin)
 
         result["exists"] = bool(found_coins)
         result["info"]["total_usd"] = total_usd
+
+        # Feature 7 — whale label
+        whale = self._whale_label(total_usd)
+
         result["info"]["message"] = (
             f"Seed OK | Coins with balance: {', '.join(found_coins) if found_coins else 'none'} "
-            f"| Total: ~${total_usd:,.2f}"
+            f"| Total: ~${total_usd:,.2f}{whale}"
         )
         if errors:
             result["info"]["derive_errors"] = errors
         return result
+
 
     # ═══════════════════════════════════════════════════════════════════════════
     #  POINT 2 — PRIVATE KEY HEX  (ETH/BSC/Polygon/Avalanche/Arbitrum/Optimism)
@@ -331,10 +458,14 @@ class CryptoChecker(BaseChecker):
         result["info"]["chains"]    = chain_results
         result["info"]["total_usd"] = total_usd
         result["exists"] = bool(active)
+
+        # Feature 7 — whale label
+        whale = self._whale_label(total_usd)
+
         result["info"]["message"] = (
             f"PrivKey -> {address} | "
             f"Active chains: {', '.join(active) if active else 'none'} | "
-            f"Total: ~${total_usd:,.2f}"
+            f"Total: ~${total_usd:,.2f}{whale}"
         )
         return result
 
@@ -422,6 +553,7 @@ class CryptoChecker(BaseChecker):
                 tokens = tokens[1:]
         return (tokens[0] if tokens else ""), (tokens[1] if len(tokens) > 1 else "")
 
+
     # ═══════════════════════════════════════════════════════════════════════════
     #  WALLET CHECKERS
     # ═══════════════════════════════════════════════════════════════════════════
@@ -452,7 +584,12 @@ class CryptoChecker(BaseChecker):
                     if tx_count is not None: result["info"]["tx_count"] = tx_count
                     result["exists"] = balance > 0
                     usd = self._usd(balance, "bitcoin", prices)
-                    result["info"]["message"] = f"Balance: {balance:.8f} BTC{usd}" + ("  (empty)" if not result["exists"] else "")
+
+                    # Feature 7 — whale label for BTC
+                    btc_usd_val = balance * prices.get("bitcoin", 0)
+                    whale = self._whale_label(btc_usd_val)
+
+                    result["info"]["message"] = f"Balance: {balance:.8f} BTC{usd}" + ("  (empty)" if not result["exists"] else "") + whale
                     if tx_count: result["info"]["message"] += f"  |  Tx: {tx_count}"
                     return result
                 resp.close()
@@ -503,12 +640,15 @@ class CryptoChecker(BaseChecker):
             staking = await self._check_staking(address, timeout, proxy, session)
             # Point 6 — last tx
             last_tx = await self._get_last_tx_eth(address, timeout, proxy, session)
+            # Feature 5 — approval checker
+            approvals = await self._check_approvals(address, timeout, proxy, session)
 
             result["info"]["balance_eth"] = balance
             result["info"]["tokens"]      = tokens
             result["info"]["nfts"]        = nfts
             result["info"]["staking"]     = staking
             result["info"]["last_tx"]     = last_tx
+            result["info"]["approvals"]   = approvals
             result["exists"] = balance > 0 or bool(tokens) or bool(nfts) or bool(staking)
             usd = self._usd(balance, "ethereum", prices)
             msg = f"Balance: {balance:.6f} ETH{usd}"
@@ -516,11 +656,52 @@ class CryptoChecker(BaseChecker):
             if nfts:    msg += f"  |  NFTs: {nfts}"
             if staking: msg += "  |  Staking: " + ", ".join(f"{v:.4f} {k}" for k,v in staking.items())
             if last_tx: msg += f"  |  Last tx: {last_tx}"
+            if approvals: msg += f"  |  Approvals: {', '.join(approvals)}"
             if not result["exists"]: msg += "  (empty)"
+
+            # Feature 7 — whale label for ETH
+            total_eth_usd = balance * prices.get("ethereum", 0)
+            # Add token USD values (approximate: USDT/USDC are ~$1 each)
+            for tk, tv in tokens.items():
+                if tk in ("USDT", "USDC", "DAI"):
+                    total_eth_usd += tv
+                elif tk == "WETH":
+                    total_eth_usd += tv * prices.get("ethereum", 0)
+            whale = self._whale_label(total_eth_usd)
+            msg += whale
+
             result["info"]["message"] = msg
         else:
             result["info"]["error"] = "All ETH APIs failed"
         return result
+
+    # ── Feature 5 — Approval/Allowance checker ─────────────────────────────────
+    async def _check_approvals(self, address, timeout, proxy, session):
+        """Check USDT allowances on popular DEX routers."""
+        approved_routers = []
+        # allowance(address owner, address spender) = 0xdd62ed3e
+        for router_name, router_addr in _DEX_ROUTERS.items():
+            try:
+                # Encode: allowance(owner, spender)
+                owner_padded = "000000000000000000000000" + address[2:].lower()
+                spender_padded = "000000000000000000000000" + router_addr[2:].lower()
+                data_hex = "0xdd62ed3e" + owner_padded + spender_padded
+                payload = {"jsonrpc":"2.0","id":1,"method":"eth_call",
+                           "params":[{"to":_USDT_CONTRACT,"data":data_hex},"latest"]}
+                resp = await self.fetch(session, "POST", "https://cloudflare-eth.com",
+                                        timeout=timeout, proxy=proxy,
+                                        json=payload, headers={"Content-Type":"application/json"})
+                if resp.status == 200:
+                    d = await resp.json(); resp.close()
+                    raw = d.get("result", "0x0")
+                    allowance_val = int(raw, 16)
+                    if allowance_val > 0:
+                        approved_routers.append(router_name)
+                else:
+                    resp.close()
+            except Exception:
+                continue
+        return approved_routers
 
     # ── Point 4 — ERC-20 tokens ────────────────────────────────────────────────
     async def _check_erc20(self, address, timeout, proxy, session):
@@ -591,7 +772,8 @@ class CryptoChecker(BaseChecker):
                 continue
         return staking
 
-    # ── Point 6 — Last transaction ────────────────────────────────────────────
+
+    # ── Point 6 — Last transaction ─────────────────────────────────────────────
     async def _get_last_tx_eth(self, address, timeout, proxy, session):
         try:
             url  = f"https://api.etherscan.io/api?module=account&action=txlist&address={address}&page=1&offset=1&sort=desc"
@@ -653,13 +835,67 @@ class CryptoChecker(BaseChecker):
                         result["info"]["balance_sol"] = balance
                         result["exists"] = balance > 0
                         usd = self._usd(balance,"solana",prices)
-                        result["info"]["message"] = f"Balance: {balance:.4f} SOL{usd}" + ("  (empty)" if not result["exists"] else "")
+                        msg = f"Balance: {balance:.4f} SOL{usd}" + ("  (empty)" if not result["exists"] else "")
+
+                        # Feature 3 — SPL token checking
+                        spl_tokens = await self._check_spl_tokens(address, timeout, proxy, session)
+                        if spl_tokens:
+                            result["info"]["spl_tokens"] = spl_tokens
+                            msg += "  |  SPL Tokens: " + ", ".join(f"{v} {k}" for k, v in spl_tokens.items())
+                            if not result["exists"]:
+                                result["exists"] = True
+
+                        result["info"]["message"] = msg
                         return result
                     resp.close()
             except Exception:
                 continue
         result["info"]["error"] = "All SOL APIs failed"
         return result
+
+    # ── Feature 3 — SPL Token checking for Solana ──────────────────────────────
+    async def _check_spl_tokens(self, address, timeout, proxy, session):
+        """Check SPL token accounts for a Solana address."""
+        tokens = {}
+        try:
+            payload = {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "getTokenAccountsByOwner",
+                "params": [
+                    address,
+                    {"programId": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"},
+                    {"encoding": "jsonParsed"}
+                ]
+            }
+            for url in ["https://api.mainnet-beta.solana.com", "https://solana-api.projectserum.com"]:
+                try:
+                    resp = await self.fetch(session, "POST", url, timeout=timeout, proxy=proxy,
+                                            json=payload, headers={"Content-Type": "application/json"})
+                    if resp.status == 200:
+                        d = await resp.json(); resp.close()
+                        if "result" in d and d["result"].get("value"):
+                            for account in d["result"]["value"]:
+                                try:
+                                    parsed = account.get("account", {}).get("data", {}).get("parsed", {})
+                                    info = parsed.get("info", {})
+                                    token_amount = info.get("tokenAmount", {})
+                                    amount = float(token_amount.get("uiAmount", 0) or 0)
+                                    mint = info.get("mint", "")
+                                    if amount > 0 and mint:
+                                        # Use short mint (first 6 chars)
+                                        mint_short = mint[:6] + "..."
+                                        tokens[mint_short] = round(amount, 4)
+                                except Exception:
+                                    continue
+                            return tokens
+                    else:
+                        resp.close()
+                except Exception:
+                    continue
+        except Exception:
+            pass
+        return tokens
 
     async def _check_ton(self, address, timeout, proxy, session):
         result = self.make_result(input=address, type="wallet", wallet_type="ton", valid=True)
