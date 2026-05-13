@@ -276,13 +276,15 @@ class CryptoChecker(BaseChecker):
         result["info"]["addresses"] = derived
         result["info"]["balances"]  = {}
 
+        _bal_keys = {"bitcoin": "balance_btc", "ethereum": "balance_eth",
+                     "tron": "balance_trx", "solana": "balance_sol"}
         for (coin, addr), res in zip(
             [(c, a) for c, a in derived.items() if c in handlers],
             check_results
         ):
             if isinstance(res, Exception):
                 continue
-            bal_key = f"balance_{coin[:3].lower()}"
+            bal_key = _bal_keys.get(coin, f"balance_{coin[:3].lower()}")
             bal = res.get("info", {}).get(bal_key, 0) or 0
             result["info"]["balances"][coin] = {
                 "address": addr,
