@@ -1,4 +1,4 @@
-﻿import asyncio
+import asyncio
 import aiohttp
 import re
 import hashlib
@@ -471,20 +471,24 @@ class CryptoChecker(BaseChecker):
                 if fmt == "etherscan":
                     resp = await self.fetch(session, "GET", url, timeout=timeout, proxy=proxy)
                     if resp.status == 200:
-                        d = await resp.json(); resp.close()
+                        d = await resp.json()
+                        resp.close()
                         if d.get("status") == "1":
                             balance = int(d["result"]) / 1e18
                             result["info"]["api_source"] = api_name; break
+                    else:
                         resp.close()
                 else:
                     payload = {"jsonrpc":"2.0","id":1,"method":"eth_getBalance","params":[address,"latest"]}
                     resp = await self.fetch(session, "POST", url, timeout=timeout, proxy=proxy,
                                             json=payload, headers={"Content-Type":"application/json"})
                     if resp.status == 200:
-                        d = await resp.json(); resp.close()
+                        d = await resp.json()
+                        resp.close()
                         if "result" in d:
                             balance = int(d["result"],16) / 1e18
                             result["info"]["api_source"] = api_name; break
+                    else:
                         resp.close()
             except Exception:
                 continue
@@ -823,7 +827,7 @@ class CryptoChecker(BaseChecker):
                                     json=payload,headers={"Content-Type":"application/json"})
             if resp.status == 200:
                 d = await resp.json(); resp.close()
-                balance = int(d["result"],16) / 1e18
+                balance = int(d.get("result","0x0"),16) / 1e18
                 result["info"]["balance_bnb"] = balance
                 result["exists"] = balance > 0
                 usd = self._usd(balance,"bnb",prices)
