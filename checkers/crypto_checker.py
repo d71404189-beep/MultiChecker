@@ -1,4 +1,4 @@
-import asyncio
+﻿import asyncio
 import aiohttp
 import re
 
@@ -29,54 +29,54 @@ class CryptoChecker(BaseChecker):
 
         self.auth_info = {
             "bitcoin": {
-                "auth_type": "Приватный ключ / Seed-фраза",
+                "auth_type": "РџСЂРёРІР°С‚РЅС‹Р№ РєР»СЋС‡ / Seed-С„СЂР°Р·Р°",
                 "wallets": "Electrum, Exodus, Trust Wallet, Ledger",
-                "how": "Импортируй приватный ключ или seed-фразу в кошелёк (Electrum / Exodus / Trust Wallet)",
+                "how": "РРјРїРѕСЂС‚РёСЂСѓР№ РїСЂРёРІР°С‚РЅС‹Р№ РєР»СЋС‡ РёР»Рё seed-С„СЂР°Р·Сѓ РІ РєРѕС€РµР»С‘Рє (Electrum / Exodus / Trust Wallet)",
             },
             "ethereum": {
-                "auth_type": "Приватный ключ / Seed-фраза / Keystore",
+                "auth_type": "РџСЂРёРІР°С‚РЅС‹Р№ РєР»СЋС‡ / Seed-С„СЂР°Р·Р° / Keystore",
                 "wallets": "MetaMask, Trust Wallet, Rabby, Ledger",
-                "how": "Импортируй приватный ключ в MetaMask (Настройки → Импорт аккаунта)",
+                "how": "РРјРїРѕСЂС‚РёСЂСѓР№ РїСЂРёРІР°С‚РЅС‹Р№ РєР»СЋС‡ РІ MetaMask (РќР°СЃС‚СЂРѕР№РєРё в†’ РРјРїРѕСЂС‚ Р°РєРєР°СѓРЅС‚Р°)",
             },
             "solana": {
-                "auth_type": "Приватный ключ / Seed-фраза",
+                "auth_type": "РџСЂРёРІР°С‚РЅС‹Р№ РєР»СЋС‡ / Seed-С„СЂР°Р·Р°",
                 "wallets": "Phantom, Solflare, Backpack",
-                "how": "Установи Phantom (phantom.app), выбери 'Импортировать приватный ключ' и вставь ключ",
+                "how": "РЈСЃС‚Р°РЅРѕРІРё Phantom (phantom.app), РІС‹Р±РµСЂРё 'РРјРїРѕСЂС‚РёСЂРѕРІР°С‚СЊ РїСЂРёРІР°С‚РЅС‹Р№ РєР»СЋС‡' Рё РІСЃС‚Р°РІСЊ РєР»СЋС‡",
             },
             "tron": {
-                "auth_type": "Приватный ключ / Seed-фраза",
+                "auth_type": "РџСЂРёРІР°С‚РЅС‹Р№ РєР»СЋС‡ / Seed-С„СЂР°Р·Р°",
                 "wallets": "TronLink, Trust Wallet, Ledger",
-                "how": "Установи TronLink, выбери 'Импорт кошелька' и вставь приватный ключ",
+                "how": "РЈСЃС‚Р°РЅРѕРІРё TronLink, РІС‹Р±РµСЂРё 'РРјРїРѕСЂС‚ РєРѕС€РµР»СЊРєР°' Рё РІСЃС‚Р°РІСЊ РїСЂРёРІР°С‚РЅС‹Р№ РєР»СЋС‡",
             },
             "litecoin": {
-                "auth_type": "Приватный ключ / Seed-фраза",
+                "auth_type": "РџСЂРёРІР°С‚РЅС‹Р№ РєР»СЋС‡ / Seed-С„СЂР°Р·Р°",
                 "wallets": "Electrum-LTC, Exodus, Trust Wallet",
-                "how": "Импортируй приватный ключ в Electrum-LTC или Exodus",
+                "how": "РРјРїРѕСЂС‚РёСЂСѓР№ РїСЂРёРІР°С‚РЅС‹Р№ РєР»СЋС‡ РІ Electrum-LTC РёР»Рё Exodus",
             },
             "dash": {
-                "auth_type": "Приватный ключ / Seed-фраза",
+                "auth_type": "РџСЂРёРІР°С‚РЅС‹Р№ РєР»СЋС‡ / Seed-С„СЂР°Р·Р°",
                 "wallets": "Dash Core, Exodus, Trust Wallet",
-                "how": "Импортируй приватный ключ в Dash Core (Консоль: importprivkey <ключ>)",
+                "how": "РРјРїРѕСЂС‚РёСЂСѓР№ РїСЂРёРІР°С‚РЅС‹Р№ РєР»СЋС‡ РІ Dash Core (РљРѕРЅСЃРѕР»СЊ: importprivkey <РєР»СЋС‡>)",
             },
             "monero": {
-                "auth_type": "Seed-фраза (25 слов) / Приватные ключи (spend + view)",
+                "auth_type": "Seed-С„СЂР°Р·Р° (25 СЃР»РѕРІ) / РџСЂРёРІР°С‚РЅС‹Рµ РєР»СЋС‡Рё (spend + view)",
                 "wallets": "Monero GUI, Cake Wallet, Feather Wallet",
-                "how": "В Monero GUI выбери 'Восстановить кошелёк из seed' и введи 25 слов",
+                "how": "Р’ Monero GUI РІС‹Р±РµСЂРё 'Р’РѕСЃСЃС‚Р°РЅРѕРІРёС‚СЊ РєРѕС€РµР»С‘Рє РёР· seed' Рё РІРІРµРґРё 25 СЃР»РѕРІ",
             },
             "ripple": {
-                "auth_type": "Приватный ключ / Seed-фраза / Family Seed",
+                "auth_type": "РџСЂРёРІР°С‚РЅС‹Р№ РєР»СЋС‡ / Seed-С„СЂР°Р·Р° / Family Seed",
                 "wallets": "XUMM (Xaman), Trust Wallet, Ledger",
-                "how": "Установи XUMM, выбери 'Импорт' и введи Family Seed или мнемоническую фразу",
+                "how": "РЈСЃС‚Р°РЅРѕРІРё XUMM, РІС‹Р±РµСЂРё 'РРјРїРѕСЂС‚' Рё РІРІРµРґРё Family Seed РёР»Рё РјРЅРµРјРѕРЅРёС‡РµСЃРєСѓСЋ С„СЂР°Р·Сѓ",
             },
             "dogecoin": {
-                "auth_type": "Приватный ключ / Seed-фраза",
+                "auth_type": "РџСЂРёРІР°С‚РЅС‹Р№ РєР»СЋС‡ / Seed-С„СЂР°Р·Р°",
                 "wallets": "Dogecoin Core, Exodus, Trust Wallet",
-                "how": "Импортируй приватный ключ в Exodus или Dogecoin Core",
+                "how": "РРјРїРѕСЂС‚РёСЂСѓР№ РїСЂРёРІР°С‚РЅС‹Р№ РєР»СЋС‡ РІ Exodus РёР»Рё Dogecoin Core",
             },
             "bnb": {
-                "auth_type": "Приватный ключ / Seed-фраза",
+                "auth_type": "РџСЂРёРІР°С‚РЅС‹Р№ РєР»СЋС‡ / Seed-С„СЂР°Р·Р°",
                 "wallets": "Trust Wallet, MetaMask (BSC), Binance Chain Wallet",
-                "how": "Импортируй seed-фразу в Trust Wallet или добавь BSC сеть в MetaMask",
+                "how": "РРјРїРѕСЂС‚РёСЂСѓР№ seed-С„СЂР°Р·Сѓ РІ Trust Wallet РёР»Рё РґРѕР±Р°РІСЊ BSC СЃРµС‚СЊ РІ MetaMask",
             },
         }
 
@@ -354,3 +354,5 @@ class CryptoChecker(BaseChecker):
         except Exception as e:
             result["info"]["error"] = str(e)
         return result
+
+
