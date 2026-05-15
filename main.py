@@ -12,10 +12,19 @@ import threading
 from datetime import datetime
 from urllib.parse import urlparse
 
+# Опциональный импорт для drag-and-drop
+try:
+    from tkinterdnd2 import DND_FILES, TkinterDnD
+    DRAG_DROP_AVAILABLE = True
+except ImportError:
+    DRAG_DROP_AVAILABLE = False
+    print("⚠️ tkinterdnd2 не установлен. Drag-and-drop недоступен.")
+    print("   Установите: pip install tkinterdnd2")
+
 sys.path.insert(0, os.path.dirname(__file__))
 
-# Установлена актуальная версия v1.0.49
-APP_VERSION = "1.0.49"
+# Установлена актуальная версия v1.0.50
+APP_VERSION = "1.0.50"
 
 if platform.system() == "Windows":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -225,6 +234,12 @@ class MultiCheckerApp(ctk.CTk):
             text_color=TEXT, corner_radius=8,
         )
         w["input"].grid(row=1, column=0, padx=12, pady=(2, 12), sticky="ew")
+        
+        # Добавляем поддержку Ctrl+V для вставки из буфера обмена
+        self._bind_paste_shortcut(w["input"])
+        
+        # Добавляем поддержку drag-and-drop файлов
+        self._setup_drag_and_drop(w["input"])
 
         sc = self._card(body, "Настройки")
         sc.grid(row=1, column=0, padx=16, pady=6, sticky="ew")
@@ -320,6 +335,7 @@ class MultiCheckerApp(ctk.CTk):
                                               text_color=TEXT, corner_radius=6,
                                               placeholder_text="0x...")
             w["withdraw_eth"].grid(row=0, column=1, padx=(0, 10), pady=8, sticky="ew")
+            self._bind_paste_shortcut(w["withdraw_eth"])
             
             # BTC адрес
             ctk.CTkLabel(aw_addresses, text="Bitcoin:", font=("Segoe UI", 11),
@@ -329,6 +345,7 @@ class MultiCheckerApp(ctk.CTk):
                                               text_color=TEXT, corner_radius=6,
                                               placeholder_text="bc1... или 1... или 3...")
             w["withdraw_btc"].grid(row=1, column=1, padx=(0, 10), pady=8, sticky="ew")
+            self._bind_paste_shortcut(w["withdraw_btc"])
             
             # TRX адрес
             ctk.CTkLabel(aw_addresses, text="Tron:", font=("Segoe UI", 11),
@@ -338,6 +355,7 @@ class MultiCheckerApp(ctk.CTk):
                                               text_color=TEXT, corner_radius=6,
                                               placeholder_text="T...")
             w["withdraw_trx"].grid(row=2, column=1, padx=(0, 10), pady=8, sticky="ew")
+            self._bind_paste_shortcut(w["withdraw_trx"])
             
             # SOL адрес
             ctk.CTkLabel(aw_addresses, text="Solana:", font=("Segoe UI", 11),
@@ -347,6 +365,7 @@ class MultiCheckerApp(ctk.CTk):
                                               text_color=TEXT, corner_radius=6,
                                               placeholder_text="...")
             w["withdraw_sol"].grid(row=3, column=1, padx=(0, 10), pady=(8, 12), sticky="ew")
+            self._bind_paste_shortcut(w["withdraw_sol"])
             
             # Минимальные суммы
             aw_min = ctk.CTkFrame(aw_card, fg_color="transparent")
@@ -574,6 +593,114 @@ class MultiCheckerApp(ctk.CTk):
                          text_color=MUTED).grid(row=0, column=0, padx=14,
                                                 pady=(10, 2), sticky="w")
         return f
+    
+    def _bind_paste_shortcut(self, widget):
+        """Добавляет поддержку Ctrl+V для вставки из буфера обмена."""
+        def paste_from_clipboard(event=None):
+            try:
+                # Получаем содержимое буфера обмена
+                clipboard_content = self.clipboard_get()
+                
+                if isinstance(widget, ctk.CTkTextbox):
+                    # Для Textbox вставляем в текущую позицию курсора
+                    try:
+                        widget.insert("insert", clipboard_content)
+                    except:
+                        # Если не получилось вставить в позицию курсора, добавляем в конец
+                        widget.insert("end", clipboard_content)
+                elif isinstance(widget, ctk.CTkEntry):
+                    # Для Entry заменяем весь текст
+                    widget.delete(0, "end")
+                    widget.insert(0, clipboard_content)
+                
+                return "break"  # Предотвращаем стандартное поведение
+            except Exception as e:
+                print(f"Ошибка вставки из буфера: {e}")
+                return "break"
+        
+        # Биндим Ctrl+V (Windows/Linux) и Cmd+V (Mac)
+        widget.bind("<Control-v>", paste_from_clipboard)
+        widget.bind("<Command-v>", paste_from_clipboard)
+        
+        # Также биндим правую кнопку мыши для контекстного меню
+        if isinstance(widget, ctk.CTkEntry):
+            def show_context_menu(event):
+                try:
+                    menu = ctk.CTkToplevel(self)
+                    menu.withdraw()
+                    menu.overrideredirect(True)
+                    
+                    frame = ctk.CTkFrame(menu, fg_color=CARD, corner_radius=8)
+                    frame.pack(padx=2, pady=2)
+                    
+                    ctk.CTkButton(frame, text="📋 Вставить (Ctrl+V)", 
+                                  command=lambda: [paste_from_clipboard(), menu.destroy()],
+                                  fg_color="transparent", hover_color=HOVER,
+                                  anchor="w", height=28, font=("Segoe UI", 11)
+                                  ).pack(fill="x", padx=4, pady=2)
+                    
+                    menu.geometry(f"+{event.x_root}+{event.y_root}")
+                    menu.deiconify()
+                    menu.focus_set()
+                    menu.bind("<FocusOut>", lambda e: menu.destroy())
+                except Exception:
+                    pass
+            
+            widget.bind("<Button-3>", show_context_menu)
+    
+    def _setup_drag_and_drop(self, textbox):
+        """Настраивает drag-and-drop для текстового поля."""
+        if not DRAG_DROP_AVAILABLE:
+            return
+        
+        def on_drop(event):
+            try:
+                # Получаем путь к файлу (может быть в фигурных скобках на Windows)
+                file_path = event.data
+                
+                # Убираем фигурные скобки если есть
+                if file_path.startswith('{') and file_path.endswith('}'):
+                    file_path = file_path[1:-1]
+                
+                # Проверяем что это файл
+                if os.path.isfile(file_path):
+                    # Читаем содержимое файла
+                    try:
+                        with open(file_path, 'r', encoding='utf-8') as f:
+                            content = f.read()
+                        
+                        # Очищаем текстбокс и вставляем содержимое
+                        textbox.delete("1.0", "end")
+                        textbox.insert("1.0", content)
+                        
+                        # Логируем успех
+                        print(f"✓ Файл загружен: {os.path.basename(file_path)}")
+                    except UnicodeDecodeError:
+                        # Пробуем другие кодировки
+                        try:
+                            with open(file_path, 'r', encoding='cp1251') as f:
+                                content = f.read()
+                            textbox.delete("1.0", "end")
+                            textbox.insert("1.0", content)
+                            print(f"✓ Файл загружен (cp1251): {os.path.basename(file_path)}")
+                        except Exception as e:
+                            print(f"✗ Ошибка чтения файла: {e}")
+                    except Exception as e:
+                        print(f"✗ Ошибка загрузки файла: {e}")
+                else:
+                    print(f"✗ Не является файлом: {file_path}")
+                    
+            except Exception as e:
+                print(f"✗ Ошибка drag-and-drop: {e}")
+        
+        # Регистрируем drag-and-drop
+        try:
+            # Получаем внутренний tkinter виджет
+            tk_textbox = textbox._textbox
+            tk_textbox.drop_target_register(DND_FILES)
+            tk_textbox.dnd_bind('<<Drop>>', on_drop)
+        except Exception as e:
+            print(f"⚠️ Не удалось настроить drag-and-drop: {e}")
 
     def toggle_lang(self):
         i18n.set_lang("en" if i18n.current_lang == "ru" else "ru")
