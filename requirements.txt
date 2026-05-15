@@ -8,3 +8,4 @@ eth_account==0.13.7
 mnemonic==0.21
 base58==2.1.1
 qrcode==7.4.2
+web3==6.11.3
