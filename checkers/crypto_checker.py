@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import struct
 import time
+import os
 
 from checkers.base_checker import BaseChecker
 
@@ -24,20 +25,15 @@ _WALLET_PATTERNS = [
     ("bnb",       re.compile(r'^bnb1[a-z0-9]{38}$')),
 ]
 
-# Private key patterns
-_PRIVKEY_HEX_RE  = re.compile(r'^(0x)?[a-fA-F0-9]{64}$')          # ETH/BSC hex
-_PRIVKEY_WIF_RE  = re.compile(r'^[5KLc][1-9A-HJ-NP-Za-km-z]{50,51}$')  # BTC WIF
-
-# Seed phrase: 12 or 24 space-separated BIP-39 words
+_PRIVKEY_HEX_RE  = re.compile(r'^(0x)?[a-fA-F0-9]{64}$')
+_PRIVKEY_WIF_RE  = re.compile(r'^[5KLc][1-9A-HJ-NP-Za-km-z]{50,51}$')
 _SEED_RE = re.compile(r'^([a-z]+\s){11,23}[a-z]+$', re.IGNORECASE)
 
 _WALLET_FIRST_CHARS = frozenset('bB013456789LMlTXrDdEUa')
 
-# ── Exchange API key patterns (Feature 2) ──────────────────────────────────────
 _EXCHANGE_API_RE = re.compile(r'^[a-zA-Z0-9]{32,64}:[a-zA-Z0-9]{32,64}$')
 _EXCHANGE_KEYWORDS = ["binance", "bybit", "okx", "huobi", "kucoin", "gate", "mexc", "bitget"]
 
-# ── Token symbol -> CoinGecko ID mapping (Feature 3) ──────────────────────────
 _TOKEN_COINGECKO_MAP = {
     "USDT": "tether",
     "USDC": "usd-coin",
@@ -49,12 +45,10 @@ _TOKEN_COINGECKO_MAP = {
     "WETH": "weth",
 }
 
-# ── Price cache ────────────────────────────────────────────────────────────────
 _PRICE_CACHE: dict = {}
 _PRICE_CACHE_TS: float = 0.0
 _PRICE_TTL = 300
 
-# ── ERC-20 tokens to check ─────────────────────────────────────────────────────
 _ERC20_TOKENS = {
     "USDT":  ("0xdac17f958d2ee523a2206206994597c13d831ec7", 6),
     "USDC":  ("0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48", 6),
@@ -66,10 +60,8 @@ _ERC20_TOKENS = {
     "PEPE":  ("0x6982508145454ce325ddbe47a25d4ec3d2311933", 18),
 }
 
-# ── TRC-20 tokens (Feature 4 — expanded) ──────────────────────────────────────
 _TRC20_TOKENS = {"USDT", "USDC", "WTRX", "BTT", "JST", "SUN", "WIN"}
 
-# ── EVM chains for multichain scan ────────────────────────────────────────────
 _EVM_CHAINS = [
     ("ethereum",  "https://cloudflare-eth.com",                    "ETH"),
     ("bsc",       "https://bsc-dataseed.binance.org/",             "BNB"),
@@ -79,14 +71,12 @@ _EVM_CHAINS = [
     ("optimism",  "https://mainnet.optimism.io",                   "ETH"),
 ]
 
-# ── DEX routers for approval checking (Feature 5) ─────────────────────────────
 _DEX_ROUTERS = {
     "Uniswap V2": "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D",
     "Uniswap V3": "0xE592427A0AEce92De3Edee1F18E0157C05861564",
     "1inch":      "0x1111111254EEB25477B68fb85Ed929f73A960582",
 }
 
-# USDT contract for allowance checks
 _USDT_CONTRACT = "0xdac17f958d2ee523a2206206994597c13d831ec7"
 
 
@@ -111,22 +101,13 @@ class CryptoChecker(BaseChecker):
             "bnb":       {"auth_type":"Private Key / Seed Phrase","wallets":"Trust Wallet, MetaMask (BSC), Binance Chain Wallet","how":"Import seed phrase into Trust Wallet or add BSC network in MetaMask"},
         }
 
-    # ═══════════════════════════════════════════════════════════════════════════
-    #  FEATURE 7 — WHALE ALERT LABEL
-    # ═══════════════════════════════════════════════════════════════════════════
-
     def _whale_label(self, total_usd):
-        """Return whale alert label based on total USD value."""
         import i18n
         if total_usd >= 10000:
             return f" | \U0001f40b {i18n.t('whale')}"
         elif total_usd >= 1000:
             return f" | \U0001f4b0 {i18n.t('high_value')}"
         return ""
-
-    # ═══════════════════════════════════════════════════════════════════════════
-    #  PRICE CACHE  (point 6 — USD equivalent)
-    # ═══════════════════════════════════════════════════════════════════════════
 
     async def _get_prices(self, session, timeout):
         global _PRICE_CACHE, _PRICE_CACHE_TS
@@ -165,10 +146,6 @@ class CryptoChecker(BaseChecker):
         p = prices.get(coin, 0)
         return f" (~${amount*p:,.2f})" if p and amount else ""
 
-    # ═══════════════════════════════════════════════════════════════════════════
-    #  MAIN ENTRY
-    # ═══════════════════════════════════════════════════════════════════════════
-
     async def check(self, data: str, timeout: int = 10, proxy: str = None,
                     session: aiohttp.ClientSession = None) -> dict:
         result = self.make_result(input=data, type="unknown")
@@ -183,20 +160,18 @@ class CryptoChecker(BaseChecker):
         return result
 
     async def _dispatch(self, data, timeout, proxy, session):
-        # 1. Seed phrase (12 or 24 words)
-        words = data.split()
-        if len(words) in (12, 15, 18, 21, 24) and _SEED_RE.match(data):
-            return await self._check_seed(data, timeout, proxy, session)
+        # Нормализация пробелов и переносов строк для защиты валидации
+        normalized_data = " ".join(data.strip().split())
+        words = normalized_data.split()
+        if len(words) in (12, 15, 18, 21, 24) and _SEED_RE.match(normalized_data):
+            return await self._check_seed(normalized_data, timeout, proxy, session)
 
-        # 2. Private key hex (ETH/BSC/Polygon/Avalanche)
         if _PRIVKEY_HEX_RE.match(data):
             return await self._check_privkey_hex(data, timeout, proxy, session)
 
-        # 8. WIF private key (Bitcoin)
         if _PRIVKEY_WIF_RE.match(data):
             return await self._check_privkey_wif(data, timeout, proxy, session)
 
-        # Regular wallet address
         wallet_type = self._detect_wallet(data)
         if wallet_type:
             result = self.make_result(input=data, type="wallet", wallet_type=wallet_type)
@@ -222,7 +197,6 @@ class CryptoChecker(BaseChecker):
                 result["info"]["error"] = f"No checker for {wallet_type}"
             return result
 
-        # Exchange credentials
         exchange = self._detect_exchange(data)
         if exchange:
             login, password = self._parse_credentials(data)
@@ -237,7 +211,6 @@ class CryptoChecker(BaseChecker):
                                        f"Pass: {password}" if password else ""]))})
             return result
 
-        # ── Feature 6 — ENS / .crypto domain resolve ──────────────────────────
         if data.endswith(".eth"):
             resolved = await self._resolve_ens(data, timeout, proxy, session)
             if resolved:
@@ -248,7 +221,6 @@ class CryptoChecker(BaseChecker):
             if resolved:
                 return await self._check_ethereum(resolved, timeout, proxy, session)
 
-        # ── Feature 2 — Exchange API key detection ────────────────────────────
         exchange_api = self._detect_exchange_api(data)
         if exchange_api:
             return self._make_exchange_api_result(data, exchange_api)
@@ -258,11 +230,10 @@ class CryptoChecker(BaseChecker):
         return result
 
     # ═══════════════════════════════════════════════════════════════════════════
-    #  FEATURE 6 — ENS / UNSTOPPABLE DOMAINS RESOLVE
+    #  ENS / UNSTOPPABLE DOMAINS RESOLVE
     # ═══════════════════════════════════════════════════════════════════════════
 
     async def _resolve_ens(self, name, timeout, proxy, session):
-        """Resolve ENS name to Ethereum address via ensideas API."""
         try:
             url = f"https://api.ensideas.com/ens/resolve/{name}"
             resp = await self.fetch(session, "GET", url, timeout=timeout, proxy=proxy)
@@ -278,7 +249,6 @@ class CryptoChecker(BaseChecker):
         return None
 
     async def _resolve_unstoppable(self, name, timeout, proxy, session):
-        """Resolve Unstoppable Domains (.crypto, .nft, .wallet) to ETH address."""
         try:
             url = f"https://resolve.unstoppabledomains.com/domains/{name}"
             resp = await self.fetch(session, "GET", url, timeout=timeout, proxy=proxy)
@@ -295,13 +265,11 @@ class CryptoChecker(BaseChecker):
         return None
 
     # ═══════════════════════════════════════════════════════════════════════════
-    #  FEATURE 2 — EXCHANGE API KEY DETECTION
+    #  EXCHANGE API KEY DETECTION
     # ═══════════════════════════════════════════════════════════════════════════
 
     def _detect_exchange_api(self, data):
-        """Detect exchange API key format: key:secret with exchange keyword."""
         dl = data.lower()
-        # Check if data contains exchange keywords
         detected_exchange = None
         for kw in _EXCHANGE_KEYWORDS:
             if kw in dl:
@@ -309,15 +277,12 @@ class CryptoChecker(BaseChecker):
                 break
         if not detected_exchange:
             return None
-        # Check for key:secret pattern (two parts, each 32-64 alphanumeric chars)
-        # The data might be like "binance:APIKEY:APISECRET" or "APIKEY:APISECRET binance"
         parts = re.findall(r'[a-zA-Z0-9]{32,64}', data)
         if len(parts) >= 2:
             return detected_exchange
         return None
 
     def _make_exchange_api_result(self, data, exchange):
-        """Create result for detected exchange API key."""
         import i18n
         result = self.make_result(input=data[:20] + "...", type="exchange_api")
         result["exists"] = True
@@ -330,11 +295,10 @@ class CryptoChecker(BaseChecker):
         return result
 
     # ═══════════════════════════════════════════════════════════════════════════
-    #  FEATURE 3 — TOKEN PRICE LOOKUP
+    #  TOKEN PRICE LOOKUP
     # ═══════════════════════════════════════════════════════════════════════════
 
     async def _get_token_prices(self, symbols, session, timeout):
-        """Get USD prices for token symbols via CoinGecko."""
         if not symbols:
             return {}
         ids = []
@@ -359,7 +323,6 @@ class CryptoChecker(BaseChecker):
             resp.close()
         except Exception:
             pass
-        # Fallback: stablecoins are ~$1
         fallback = {}
         for sym in symbols:
             su = sym.upper()
@@ -368,15 +331,17 @@ class CryptoChecker(BaseChecker):
         return fallback
 
     # ═══════════════════════════════════════════════════════════════════════════
-    #  FEATURE 5 — ACTIVITY SCORE
+    #  ACTIVITY SCORE
     # ═══════════════════════════════════════════════════════════════════════════
 
     async def _get_activity_score(self, address, timeout, proxy, session):
-        """Get activity score for an ETH address based on recent transactions."""
         import i18n
         try:
+            etherscan_key = os.environ.get("ETHERSCAN_API_KEY", "")
             url = (f"https://api.etherscan.io/api?module=account&action=txlist"
                    f"&address={address}&page=1&offset=10&sort=desc")
+            if etherscan_key:
+                url += f"&apikey={etherscan_key}"
             resp = await self.fetch(session, "GET", url, timeout=timeout, proxy=proxy)
             if resp.status == 200:
                 d = await resp.json(); resp.close()
@@ -395,13 +360,11 @@ class CryptoChecker(BaseChecker):
             pass
         return ""
 
-
     # ═══════════════════════════════════════════════════════════════════════════
-    #  POINT 1 — SEED PHRASE (Features 1 & 2: BTC Segwit/Taproot + Multi-account)
+    #  SEED PHRASE CHECKER
     # ═══════════════════════════════════════════════════════════════════════════
 
     async def _check_seed(self, phrase, timeout, proxy, session):
-        """Derive BTC/ETH/SOL/TRX addresses from seed and check all balances."""
         result = self.make_result(input=phrase[:20]+"...", type="seed")
         prices = await self._get_prices(session, timeout)
         derived = {}
@@ -412,7 +375,6 @@ class CryptoChecker(BaseChecker):
                                    Bip44, Bip44Coins, Bip44Changes,
                                    Bip49, Bip49Coins, Bip84, Bip84Coins,
                                    Bip86, Bip86Coins)
-            from eth_account import Account
 
             if not Bip39MnemonicValidator().IsValid(phrase):
                 result["info"]["error"] = "Invalid BIP-39 mnemonic"
@@ -420,7 +382,6 @@ class CryptoChecker(BaseChecker):
 
             seed_bytes = Bip39SeedGenerator(phrase).Generate()
 
-            # BTC Legacy (m/44'/0'/0'/0/0..2) — 3 indexes
             for addr_idx in range(3):
                 try:
                     btc_ctx = Bip44.FromSeed(seed_bytes, Bip44Coins.BITCOIN).Purpose().Coin().Account(0).Change(Bip44Changes.CHAIN_EXT).AddressIndex(addr_idx)
@@ -428,23 +389,20 @@ class CryptoChecker(BaseChecker):
                 except Exception as e:
                     errors.append(f"BTC Legacy index {addr_idx} derive: {e}")
 
-            # BTC Segwit Native (m/84'/0'/0'/0/0..2) -> bc1q... — 3 indexes
             for addr_idx in range(3):
                 try:
-                    btc_segwit_ctx = Bip84.FromSeed(seed_bytes, Bip84Coins.BITCOIN).Purpose().Coin().Account(0).Change(Bip44Changes.CHAIN_EXT).AddressIndex(addr_idx)
+                    btc_segwit_ctx = Bip84.FromSeed(seed_bytes, Bip44Coins.BITCOIN).Purpose().Coin().Account(0).Change(Bip44Changes.CHAIN_EXT).AddressIndex(addr_idx)
                     derived[f"bitcoin_segwit_{addr_idx}"] = btc_segwit_ctx.PublicKey().ToAddress()
                 except Exception as e:
                     errors.append(f"BTC Segwit index {addr_idx} derive: {e}")
 
-            # BTC Nested Segwit (m/49'/0'/0'/0/0..2) -> 3... — 3 indexes
             for addr_idx in range(3):
                 try:
-                    btc_nested_ctx = Bip49.FromSeed(seed_bytes, Bip49Coins.BITCOIN).Purpose().Coin().Account(0).Change(Bip44Changes.CHAIN_EXT).AddressIndex(addr_idx)
+                    btc_nested_ctx = Bip49.FromSeed(seed_bytes, Bip44Coins.BITCOIN).Purpose().Coin().Account(0).Change(Bip44Changes.CHAIN_EXT).AddressIndex(addr_idx)
                     derived[f"bitcoin_nested_{addr_idx}"] = btc_nested_ctx.PublicKey().ToAddress()
                 except Exception as e:
                     errors.append(f"BTC Nested Segwit index {addr_idx} derive: {e}")
 
-            # BTC Taproot (m/86'/0'/0'/0/0..2) -> bc1p... — 3 indexes
             for addr_idx in range(3):
                 try:
                     btc_taproot_ctx = Bip86.FromSeed(seed_bytes, Bip86Coins.BITCOIN).Purpose().Coin().Account(0).Change(Bip44Changes.CHAIN_EXT).AddressIndex(addr_idx)
@@ -452,7 +410,6 @@ class CryptoChecker(BaseChecker):
                 except Exception as e:
                     errors.append(f"BTC Taproot index {addr_idx} derive: {e}")
 
-            # ETH address indexes 0-9 on account 0 (m/44'/60'/0'/0/0 through m/44'/60'/0'/0/9)
             for addr_idx in range(10):
                 try:
                     eth_ctx = Bip44.FromSeed(seed_bytes, Bip44Coins.ETHEREUM).Purpose().Coin().Account(0).Change(Bip44Changes.CHAIN_EXT).AddressIndex(addr_idx)
@@ -461,14 +418,12 @@ class CryptoChecker(BaseChecker):
                 except Exception as e:
                     errors.append(f"ETH address index {addr_idx} derive: {e}")
 
-            # TRX (m/44'/195'/0'/0/0)
             try:
                 trx_ctx = Bip44.FromSeed(seed_bytes, Bip44Coins.TRON).Purpose().Coin().Account(0).Change(Bip44Changes.CHAIN_EXT).AddressIndex(0)
                 derived["tron"] = trx_ctx.PublicKey().ToAddress()
             except Exception as e:
                 errors.append(f"TRX derive: {e}")
 
-            # SOL (m/44'/501'/0'/0')
             try:
                 sol_ctx = Bip44.FromSeed(seed_bytes, Bip44Coins.SOLANA).Purpose().Coin().Account(0)
                 derived["solana"] = sol_ctx.PublicKey().ToAddress()
@@ -479,42 +434,35 @@ class CryptoChecker(BaseChecker):
             result["info"]["error"] = f"Seed derive error: {e}"
             return result
 
-        # Map derived keys to handlers and balance keys
         handlers = {}
         _bal_keys = {}
         _price_keys = {}
 
-        # BTC Legacy indexes 0-2
         for idx in range(3):
             handlers[f"bitcoin_{idx}"] = self._check_bitcoin
             _bal_keys[f"bitcoin_{idx}"] = "balance_btc"
             _price_keys[f"bitcoin_{idx}"] = "bitcoin"
 
-        # BTC Segwit indexes 0-2
         for idx in range(3):
             handlers[f"bitcoin_segwit_{idx}"] = self._check_bitcoin
             _bal_keys[f"bitcoin_segwit_{idx}"] = "balance_btc"
             _price_keys[f"bitcoin_segwit_{idx}"] = "bitcoin"
 
-        # BTC Nested Segwit indexes 0-2
         for idx in range(3):
             handlers[f"bitcoin_nested_{idx}"] = self._check_bitcoin
             _bal_keys[f"bitcoin_nested_{idx}"] = "balance_btc"
             _price_keys[f"bitcoin_nested_{idx}"] = "bitcoin"
 
-        # BTC Taproot indexes 0-2
         for idx in range(3):
             handlers[f"bitcoin_taproot_{idx}"] = self._check_bitcoin
             _bal_keys[f"bitcoin_taproot_{idx}"] = "balance_btc"
             _price_keys[f"bitcoin_taproot_{idx}"] = "bitcoin"
 
-        # ETH indexes 0-9
         for idx in range(10):
             handlers[f"ethereum_{idx}"] = self._check_ethereum
             _bal_keys[f"ethereum_{idx}"] = "balance_eth"
             _price_keys[f"ethereum_{idx}"] = "ethereum"
 
-        # TRX and SOL
         handlers["tron"] = self._check_tron
         _bal_keys["tron"] = "balance_trx"
         _price_keys["tron"] = "tron"
@@ -523,7 +471,6 @@ class CryptoChecker(BaseChecker):
         _bal_keys["solana"] = "balance_sol"
         _price_keys["solana"] = "solana"
 
-        # Check all derived addresses concurrently
         check_items = [(coin, addr) for coin, addr in derived.items() if coin in handlers]
         check_results = await asyncio.gather(*[
             handlers[coin](addr, timeout, proxy, session)
@@ -553,8 +500,6 @@ class CryptoChecker(BaseChecker):
 
         result["exists"] = bool(found_coins)
         result["info"]["total_usd"] = total_usd
-
-        # Feature 7 — whale label
         whale = self._whale_label(total_usd)
 
         result["info"]["message"] = (
@@ -565,9 +510,8 @@ class CryptoChecker(BaseChecker):
             result["info"]["derive_errors"] = errors
         return result
 
-
     # ═══════════════════════════════════════════════════════════════════════════
-    #  POINT 2 — PRIVATE KEY HEX  (ETH/BSC/Polygon/Avalanche/Arbitrum/Optimism)
+    #  PRIVATE KEY CHECKER (EVM MULTICHAIN)
     # ═══════════════════════════════════════════════════════════════════════════
 
     async def _check_privkey_hex(self, key, timeout, proxy, session):
@@ -583,7 +527,6 @@ class CryptoChecker(BaseChecker):
             result["info"]["error"] = f"Invalid private key: {e}"
             return result
 
-        # Point 7 — multichain scan
         chain_results = await self._multichain_scan(address, timeout, proxy, session, prices)
         total_usd   = sum(r["usd"] for r in chain_results.values())
         active      = [c for c, r in chain_results.items() if r["balance"] > 0]
@@ -591,8 +534,6 @@ class CryptoChecker(BaseChecker):
         result["info"]["chains"]    = chain_results
         result["info"]["total_usd"] = total_usd
         result["exists"] = bool(active)
-
-        # Feature 7 — whale label
         whale = self._whale_label(total_usd)
 
         result["info"]["message"] = (
@@ -602,19 +543,13 @@ class CryptoChecker(BaseChecker):
         )
         return result
 
-    # ═══════════════════════════════════════════════════════════════════════════
-    #  POINT 8 — WIF PRIVATE KEY (Bitcoin)
-    # ═══════════════════════════════════════════════════════════════════════════
-
     async def _check_privkey_wif(self, wif, timeout, proxy, session):
         result = self.make_result(input=wif[:10]+"...", type="privkey_wif")
         prices = await self._get_prices(session, timeout)
         try:
-            from bip_utils import WifDecoder, Bip44, Bip44Coins, Secp256k1PrivateKey
+            from bip_utils import WifDecoder, Secp256k1PrivateKey, P2PKHAddr
             priv_bytes, _ = WifDecoder.Decode(wif)
             priv_key = Secp256k1PrivateKey.FromBytes(priv_bytes)
-            # Derive P2PKH address
-            from bip_utils import P2PKHAddr
             address = P2PKHAddr.EncodeKey(priv_key.PublicKey().KeyObject())
             result["info"]["address"] = address
         except Exception as e:
@@ -627,12 +562,7 @@ class CryptoChecker(BaseChecker):
         result["info"]["message"] = f"WIF -> {address} | " + result["info"].get("message","")
         return result
 
-    # ═══════════════════════════════════════════════════════════════════════════
-    #  POINT 7 — MULTICHAIN SCAN (EVM)
-    # ═══════════════════════════════════════════════════════════════════════════
-
     async def _multichain_scan(self, address, timeout, proxy, session, prices):
-        """Check ETH address balance on all EVM chains concurrently."""
         async def _check_chain(chain_name, rpc_url, symbol):
             try:
                 payload = {"jsonrpc":"2.0","id":1,"method":"eth_getBalance","params":[address,"latest"]}
@@ -686,7 +616,6 @@ class CryptoChecker(BaseChecker):
                 tokens = tokens[1:]
         return (tokens[0] if tokens else ""), (tokens[1] if len(tokens) > 1 else "")
 
-
     # ═══════════════════════════════════════════════════════════════════════════
     #  WALLET CHECKERS
     # ═══════════════════════════════════════════════════════════════════════════
@@ -718,7 +647,6 @@ class CryptoChecker(BaseChecker):
                     result["exists"] = balance > 0
                     usd = self._usd(balance, "bitcoin", prices)
 
-                    # Feature 7 — whale label for BTC
                     btc_usd_val = balance * prices.get("bitcoin", 0)
                     whale = self._whale_label(btc_usd_val)
 
@@ -735,8 +663,14 @@ class CryptoChecker(BaseChecker):
         result = self.make_result(input=address, type="wallet", wallet_type="ethereum", valid=True)
         prices = await self._get_prices(session, timeout)
         balance = None
+        
+        etherscan_key = os.environ.get("ETHERSCAN_API_KEY", "")
+        etherscan_url = f"https://api.etherscan.io/api?module=account&action=balance&address={address}&tag=latest"
+        if etherscan_key:
+            etherscan_url += f"&apikey={etherscan_key}"
+
         for api_name, url, fmt in [
-            ("etherscan",  f"https://api.etherscan.io/api?module=account&action=balance&address={address}&tag=latest", "etherscan"),
+            ("etherscan", etherscan_url, "etherscan"),
             ("cloudflare", "https://cloudflare-eth.com", "rpc"),
         ]:
             try:
@@ -767,23 +701,15 @@ class CryptoChecker(BaseChecker):
 
         if balance is not None:
             tokens = await self._check_erc20(address, timeout, proxy, session)
-            # BSC/Polygon tokens (same 0x address works on BSC/Polygon)
             bsc_tokens = await self._check_bsc_tokens(address, timeout, proxy, session)
             polygon_tokens = await self._check_polygon_tokens(address, timeout, proxy, session)
-            # Uniswap V3 LP positions
             uni_v3 = await self._check_uniswap_v3_positions(address, timeout, proxy, session)
-            # Point 3 — NFT check
             nfts   = await self._check_nft(address, timeout, proxy, session)
-            # Point 5 — staking
             staking = await self._check_staking(address, timeout, proxy, session)
-            # Point 6 — last tx
             last_tx = await self._get_last_tx_eth(address, timeout, proxy, session)
-            # Feature 5 — approval checker
             approvals = await self._check_approvals(address, timeout, proxy, session)
-            # Feature 5 — activity score
             activity = await self._get_activity_score(address, timeout, proxy, session)
 
-            # Feature 3 — token price lookup for total USD
             token_prices = await self._get_token_prices(list(tokens.keys()), session, timeout)
             total_token_usd = 0.0
             for tk, tv in tokens.items():
@@ -791,13 +717,11 @@ class CryptoChecker(BaseChecker):
                 if tp:
                     total_token_usd += tv * tp
                 elif tk.upper() in ("USDT", "USDC", "DAI"):
-                    total_token_usd += tv  # stablecoins fallback
-            # Add BSC stablecoins to total (they are ~$1 each)
+                    total_token_usd += tv
             for tk, tv in bsc_tokens.items():
-                total_token_usd += tv  # BSC USDT/USDC are stablecoins
-            # Add Polygon stablecoins to total
+                total_token_usd += tv
             for tk, tv in polygon_tokens.items():
-                total_token_usd += tv  # Polygon USDT/USDC are stablecoins
+                total_token_usd += tv
 
             result["info"]["balance_eth"] = balance
             result["info"]["tokens"]      = tokens
@@ -811,6 +735,7 @@ class CryptoChecker(BaseChecker):
             result["info"]["activity"]    = activity
             result["info"]["token_usd"]   = total_token_usd
             result["exists"] = balance > 0 or bool(tokens) or bool(nfts) or bool(staking) or bool(bsc_tokens) or bool(polygon_tokens) or bool(uni_v3)
+            
             usd = self._usd(balance, "ethereum", prices)
             msg = f"Balance: {balance:.6f} ETH{usd}"
             if tokens:  msg += "  |  Tokens: " + ", ".join(f"{v:.2f} {k}" for k,v in tokens.items() if v>0)
@@ -826,9 +751,7 @@ class CryptoChecker(BaseChecker):
             if activity: msg += f"  |  Activity: {activity}"
             if not result["exists"]: msg += "  (empty)"
 
-            # Feature 7 — whale label for ETH
             total_eth_usd = balance * prices.get("ethereum", 0) + total_token_usd
-            # Add staking USD values
             for sk, sv in staking.items():
                 total_eth_usd += sv * prices.get("ethereum", 0)
             whale = self._whale_label(total_eth_usd)
@@ -840,14 +763,10 @@ class CryptoChecker(BaseChecker):
             result["info"]["error"] = "All ETH APIs failed"
         return result
 
-    # ── Feature 5 — Approval/Allowance checker ─────────────────────────────────
     async def _check_approvals(self, address, timeout, proxy, session):
-        """Check USDT allowances on popular DEX routers."""
         approved_routers = []
-        # allowance(address owner, address spender) = 0xdd62ed3e
         for router_name, router_addr in _DEX_ROUTERS.items():
             try:
-                # Encode: allowance(owner, spender)
                 owner_padded = "000000000000000000000000" + address[2:].lower()
                 spender_padded = "000000000000000000000000" + router_addr[2:].lower()
                 data_hex = "0xdd62ed3e" + owner_padded + spender_padded
@@ -868,121 +787,72 @@ class CryptoChecker(BaseChecker):
                 continue
         return approved_routers
 
-    # ── Point 4 — ERC-20 tokens ────────────────────────────────────────────────
+    # ── Унифицированный приватный метод разбора EVM токенов (DRY Optimization) ──
+    async def _check_evm_rpc_token(self, address, rpc_url, contract, decimals, timeout, proxy, session):
+        try:
+            data_hex = "0x70a08231" + "000000000000000000000000" + address[2:]
+            payload = {"jsonrpc": "2.0", "id": 1, "method": "eth_call", "params": [{"to": contract, "data": data_hex}, "latest"]}
+            resp = await self.fetch(session, "POST", rpc_url, timeout=timeout, proxy=proxy, json=payload, headers={"Content-Type": "application/json"})
+            if resp.status == 200:
+                d = await resp.json(); resp.close()
+                raw = d.get("result", "0x0")
+                return int(raw, 16) / 10**decimals
+            resp.close()
+        except Exception:
+            pass
+        return 0.0
+
     async def _check_erc20(self, address, timeout, proxy, session):
         balances = {}
         for symbol, (contract, decimals) in _ERC20_TOKENS.items():
-            try:
-                data_hex = "0x70a08231" + "000000000000000000000000" + address[2:]
-                payload  = {"jsonrpc":"2.0","id":1,"method":"eth_call",
-                            "params":[{"to":contract,"data":data_hex},"latest"]}
-                resp = await self.fetch(session, "POST", "https://cloudflare-eth.com",
-                                        timeout=timeout, proxy=proxy,
-                                        json=payload, headers={"Content-Type":"application/json"})
-                if resp.status == 200:
-                    d = await resp.json(); resp.close()
-                    raw = d.get("result","0x0")
-                    val = int(raw,16) / 10**decimals
-                    if val > 0:
-                        balances[symbol] = val
-                else:
-                    resp.close()
-            except Exception:
-                continue
+            val = await self._check_evm_rpc_token(address, "https://cloudflare-eth.com", contract, decimals, timeout, proxy, session)
+            if val > 0:
+                balances[symbol] = val
         return balances
 
-    # ── BSC BEP-20 tokens ─────────────────────────────────────────────────────
     async def _check_bsc_tokens(self, address, timeout, proxy, session):
-        """Check BEP-20 token balances (USDT, USDC) on BSC."""
         balances = {}
         bsc_tokens = {
             "BSC_USDT": ("0x55d398326f99059fF775485246999027B3197955", 18),
             "BSC_USDC": ("0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d", 18),
         }
         for symbol, (contract, decimals) in bsc_tokens.items():
-            try:
-                data_hex = "0x70a08231" + "000000000000000000000000" + address[2:]
-                payload = {"jsonrpc": "2.0", "id": 1, "method": "eth_call",
-                           "params": [{"to": contract, "data": data_hex}, "latest"]}
-                resp = await self.fetch(session, "POST", "https://bsc-dataseed.binance.org/",
-                                        timeout=timeout, proxy=proxy,
-                                        json=payload, headers={"Content-Type": "application/json"})
-                if resp.status == 200:
-                    d = await resp.json(); resp.close()
-                    raw = d.get("result", "0x0")
-                    val = int(raw, 16) / 10**decimals
-                    if val > 0:
-                        balances[symbol] = val
-                else:
-                    resp.close()
-            except Exception:
-                continue
+            val = await self._check_evm_rpc_token(address, "https://bsc-dataseed.binance.org/", contract, decimals, timeout, proxy, session)
+            if val > 0:
+                balances[symbol] = val
         return balances
 
-    # ── Polygon tokens ─────────────────────────────────────────────────────────
     async def _check_polygon_tokens(self, address, timeout, proxy, session):
-        """Check token balances (USDT, USDC) on Polygon."""
         balances = {}
         polygon_tokens = {
             "POLY_USDT": ("0xc2132D05D31c914a87C6611C10748AEb04B58e8F", 6),
             "POLY_USDC": ("0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359", 6),
         }
         for symbol, (contract, decimals) in polygon_tokens.items():
-            try:
-                data_hex = "0x70a08231" + "000000000000000000000000" + address[2:]
-                payload = {"jsonrpc": "2.0", "id": 1, "method": "eth_call",
-                           "params": [{"to": contract, "data": data_hex}, "latest"]}
-                resp = await self.fetch(session, "POST", "https://polygon-rpc.com",
-                                        timeout=timeout, proxy=proxy,
-                                        json=payload, headers={"Content-Type": "application/json"})
-                if resp.status == 200:
-                    d = await resp.json(); resp.close()
-                    raw = d.get("result", "0x0")
-                    val = int(raw, 16) / 10**decimals
-                    if val > 0:
-                        balances[symbol] = val
-                else:
-                    resp.close()
-            except Exception:
-                continue
+            val = await self._check_evm_rpc_token(address, "https://polygon-rpc.com", contract, decimals, timeout, proxy, session)
+            if val > 0:
+                balances[symbol] = val
         return balances
 
-    # ── Uniswap V3 LP positions ───────────────────────────────────────────────
     async def _check_uniswap_v3_positions(self, address, timeout, proxy, session):
-        """Check if address owns any Uniswap V3 NFT positions."""
-        # Uniswap V3 Positions NFT contract
         uni_v3_nft = "0xC36442b4a4522E871399CD717aBDD847Ab11FE88"
-        try:
-            # balanceOf(address)
-            data_hex = "0x70a08231" + "000000000000000000000000" + address[2:]
-            payload = {"jsonrpc": "2.0", "id": 1, "method": "eth_call",
-                       "params": [{"to": uni_v3_nft, "data": data_hex}, "latest"]}
-            resp = await self.fetch(session, "POST", "https://cloudflare-eth.com",
-                                    timeout=timeout, proxy=proxy,
-                                    json=payload, headers={"Content-Type": "application/json"})
-            if resp.status == 200:
-                d = await resp.json(); resp.close()
-                raw = d.get("result", "0x0")
-                count = int(raw, 16)
-                if count > 0:
-                    return f"Uniswap V3: {count} positions"
-            else:
-                resp.close()
-        except Exception:
-            pass
+        val = await self._check_evm_rpc_token(address, "https://cloudflare-eth.com", uni_v3_nft, 0, timeout, proxy, session)
+        if val > 0:
+            return f"Uniswap V3: {int(val)} positions"
         return ""
 
-    # ── Point 3 — NFT check ────────────────────────────────────────────────────
     async def _check_nft(self, address, timeout, proxy, session):
-        """Check NFT count via OpenSea public API (no key needed for count)."""
         try:
+            opensea_key = os.environ.get("OPENSEA_API_KEY", "")
+            headers = {"accept": "application/json"}
+            if opensea_key:
+                headers["X-API-KEY"] = opensea_key
+                
             url  = f"https://api.opensea.io/api/v2/chain/ethereum/account/{address}/nfts?limit=1"
-            resp = await self.fetch(session, "GET", url, timeout=timeout, proxy=proxy,
-                                    headers={"accept":"application/json"})
+            resp = await self.fetch(session, "GET", url, timeout=timeout, proxy=proxy, headers=headers)
             if resp.status == 200:
                 d = await resp.json(); resp.close()
                 count = len(d.get("nfts", []))
-                # OpenSea returns next cursor if more exist
                 has_more = bool(d.get("next"))
                 return f"{count}+" if has_more else str(count) if count else ""
             resp.close()
@@ -990,9 +860,7 @@ class CryptoChecker(BaseChecker):
             pass
         return ""
 
-    # ── Point 5 — Staking / DeFi ──────────────────────────────────────────────
     async def _check_staking(self, address, timeout, proxy, session):
-        """Check stETH (Lido) and rETH (Rocket Pool) balances."""
         staking = {}
         staking_tokens = {
             "stETH": ("0xae7ab96520de3a18e5e111b5eaab095312d7fe84", 18),
@@ -1000,29 +868,17 @@ class CryptoChecker(BaseChecker):
             "wstETH":("0x7f39c581f595b53c5cb19bd0b3f8da6c935e2ca0", 18),
         }
         for symbol, (contract, decimals) in staking_tokens.items():
-            try:
-                data_hex = "0x70a08231" + "000000000000000000000000" + address[2:]
-                payload  = {"jsonrpc":"2.0","id":1,"method":"eth_call",
-                            "params":[{"to":contract,"data":data_hex},"latest"]}
-                resp = await self.fetch(session, "POST", "https://cloudflare-eth.com",
-                                        timeout=timeout, proxy=proxy,
-                                        json=payload, headers={"Content-Type":"application/json"})
-                if resp.status == 200:
-                    d = await resp.json(); resp.close()
-                    val = int(d.get("result","0x0"),16) / 10**decimals
-                    if val > 0:
-                        staking[symbol] = val
-                else:
-                    resp.close()
-            except Exception:
-                continue
+            val = await self._check_evm_rpc_token(address, "https://cloudflare-eth.com", contract, decimals, timeout, proxy, session)
+            if val > 0:
+                staking[symbol] = val
         return staking
 
-
-    # ── Point 6 — Last transaction ─────────────────────────────────────────────
     async def _get_last_tx_eth(self, address, timeout, proxy, session):
         try:
+            etherscan_key = os.environ.get("ETHERSCAN_API_KEY", "")
             url  = f"https://api.etherscan.io/api?module=account&action=txlist&address={address}&page=1&offset=1&sort=desc"
+            if etherscan_key:
+                url += f"&apikey={etherscan_key}"
             resp = await self.fetch(session, "GET", url, timeout=timeout, proxy=proxy)
             if resp.status == 200:
                 d = await resp.json(); resp.close()
@@ -1083,7 +939,6 @@ class CryptoChecker(BaseChecker):
                         usd = self._usd(balance,"solana",prices)
                         msg = f"Balance: {balance:.4f} SOL{usd}" + ("  (empty)" if not result["exists"] else "")
 
-                        # Feature 3 — SPL token checking
                         spl_tokens = await self._check_spl_tokens(address, timeout, proxy, session)
                         if spl_tokens:
                             result["info"]["spl_tokens"] = spl_tokens
@@ -1099,9 +954,7 @@ class CryptoChecker(BaseChecker):
         result["info"]["error"] = "All SOL APIs failed"
         return result
 
-    # ── Feature 3 — SPL Token checking for Solana ──────────────────────────────
     async def _check_spl_tokens(self, address, timeout, proxy, session):
-        """Check SPL token accounts for a Solana address."""
         tokens = {}
         try:
             payload = {
@@ -1129,7 +982,6 @@ class CryptoChecker(BaseChecker):
                                     amount = float(token_amount.get("uiAmount", 0) or 0)
                                     mint = info.get("mint", "")
                                     if amount > 0 and mint:
-                                        # Use short mint (first 6 chars)
                                         mint_short = mint[:6] + "..."
                                         tokens[mint_short] = round(amount, 4)
                                 except Exception:
@@ -1170,9 +1022,10 @@ class CryptoChecker(BaseChecker):
         result = self.make_result(input=address, type="wallet", wallet_type="cardano", valid=True)
         prices = await self._get_prices(session, timeout)
         try:
+            blockfrost_key = os.environ.get("BLOCKFROST_PROJECT_ID", "mainnetplaceholder")
             resp = await self.fetch(session,"GET",
                 f"https://cardano-mainnet.blockfrost.io/api/v0/addresses/{address}",
-                timeout=timeout,proxy=proxy,headers={"project_id":"mainnetplaceholder"})
+                timeout=timeout,proxy=proxy,headers={"project_id": blockfrost_key})
             if resp.status == 200:
                 d = await resp.json(); resp.close()
                 lovelace = int(next((a["quantity"] for a in d.get("amount",[]) if a["unit"]=="lovelace"),0))
