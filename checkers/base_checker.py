@@ -49,6 +49,10 @@ class BaseChecker:
             _headers.update(headers)
 
         _timeout = aiohttp.ClientTimeout(total=timeout)
+        
+        # По умолчанию SSL=True для безопасности. Может переопределяться через kwargs при вызове.
+        ssl_verify = kwargs.pop("ssl", True)
+        
         last_exc = None
         for attempt in range(retries + 1):
             try:
@@ -58,7 +62,7 @@ class BaseChecker:
                     timeout=_timeout,
                     proxy=proxy,
                     headers=_headers,
-                    ssl=False,
+                    ssl=ssl_verify,
                     **kwargs,
                 )
                 return resp
