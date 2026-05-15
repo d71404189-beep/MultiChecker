@@ -23,8 +23,8 @@ except ImportError:
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-# Установлена актуальная версия v1.0.50
-APP_VERSION = "1.0.50"
+# Установлена актуальная версия v1.0.51
+APP_VERSION = "1.0.51"
 
 if platform.system() == "Windows":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -618,9 +618,30 @@ class MultiCheckerApp(ctk.CTk):
                 print(f"Ошибка вставки из буфера: {e}")
                 return "break"
         
-        # Биндим Ctrl+V (Windows/Linux) и Cmd+V (Mac)
-        widget.bind("<Control-v>", paste_from_clipboard)
-        widget.bind("<Command-v>", paste_from_clipboard)
+        # Получаем внутренний tkinter виджет для биндинга
+        try:
+            if isinstance(widget, ctk.CTkTextbox):
+                # Для CTkTextbox внутренний виджет - _textbox
+                tk_widget = widget._textbox
+            elif isinstance(widget, ctk.CTkEntry):
+                # Для CTkEntry внутренний виджет - _entry
+                tk_widget = widget._entry
+            else:
+                tk_widget = widget
+            
+            # Биндим Ctrl+V (Windows/Linux) и Cmd+V (Mac) к внутреннему виджету
+            tk_widget.bind("<Control-v>", paste_from_clipboard)
+            tk_widget.bind("<Command-v>", paste_from_clipboard)
+            
+            # Также биндим к самому CTk виджету на всякий случай
+            widget.bind("<Control-v>", paste_from_clipboard)
+            widget.bind("<Command-v>", paste_from_clipboard)
+            
+        except Exception as e:
+            print(f"⚠️ Ошибка биндинга Ctrl+V: {e}")
+            # Пробуем забиндить напрямую к виджету
+            widget.bind("<Control-v>", paste_from_clipboard)
+            widget.bind("<Command-v>", paste_from_clipboard)
         
         # Также биндим правую кнопку мыши для контекстного меню
         if isinstance(widget, ctk.CTkEntry):
@@ -645,6 +666,12 @@ class MultiCheckerApp(ctk.CTk):
                     menu.bind("<FocusOut>", lambda e: menu.destroy())
                 except Exception:
                     pass
+            
+            try:
+                # Биндим к внутреннему виджету
+                tk_widget.bind("<Button-3>", show_context_menu)
+            except:
+                widget.bind("<Button-3>", show_context_menu)
             
             widget.bind("<Button-3>", show_context_menu)
     
