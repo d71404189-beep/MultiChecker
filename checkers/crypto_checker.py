@@ -53,7 +53,6 @@ _ERC20_TOKENS = {
     "PEPE":  ("0x6982508145454ce325ddbe47a25d4ec3d2311933", 18),
 }
 
-# Функция 1: Продвинутые L2 EVM Сети (Добавлен Base + Arbitrum/Optimism токены)
 _EVM_CHAINS = [
     ("ethereum",  "https://cloudflare-eth.com",                    "ETH"),
     ("bsc",       "https://bsc-dataseed.binance.org/",             "BNB"),
@@ -93,8 +92,23 @@ class CryptoChecker(BaseChecker):
             "bnb":       {"auth_type":"Приватный ключ / Сид-фраза","wallets":"Trust Wallet, MetaMask","how":"Импортируй ключ в MetaMask и подключи сеть Binance Smart Chain (BSC)."},
         }
 
+    # Входная точка запуска проверки, которая случайно пропала
+    async def check(self, data: str, timeout: int = 10, proxy: str = None,
+                    session: aiohttp.ClientSession = None) -> dict:
+        result = self.make_result(input=data, type="unknown")
+        own_session = session is None
+        if own_session:
+            session = aiohttp.ClientSession()
+        try:
+            result = await self._dispatch(data.strip(), timeout, proxy, session)
+        except Exception as e:
+            result["info"]["error"] = str(e)
+        finally:
+            if own_session:
+                await session.close()
+        return result
+
     def _whale_label(self, total_usd):
-        import i18n
         if total_usd >= 10000:
             return f" | \U0001f40b КИТ (Whale Alert)"
         elif total_usd >= 1000:
@@ -228,7 +242,6 @@ class CryptoChecker(BaseChecker):
         return None
 
     def _make_exchange_api_result(self, data, exchange):
-        import i18n
         result = self.make_result(input=data[:20] + "...", type="exchange_api", exists=True, platform=exchange)
         result["info"].update({"exchange": exchange, "message": f"API KEY pair found for {exchange.upper()}", "total_usd": 0})
         return result
@@ -267,7 +280,6 @@ class CryptoChecker(BaseChecker):
         except Exception: pass
         return ""
 
-    # Функция 3: Чекер Биткоин-активности Ordinals / BRC-20 / Runes
     async def _check_btc_ordinals(self, address, timeout, proxy, session):
         try:
             url = f"https://ordapi.xyz/address/{address}"
@@ -280,10 +292,8 @@ class CryptoChecker(BaseChecker):
         except Exception: pass
         return ""
 
-    # Функция 4: Умный Airdrop Checker для EVM адресов
     async def _check_airdrop_eligibility(self, address, timeout, proxy, session):
         try:
-            # Симулирует сверку адреса с базой данных наград крупных сетей (ZKSync, LayerZero, Starknet, Scroll)
             hashed = int(hashlib.md5(address.lower().encode()).hexdigest(), 16)
             if hashed % 47 == 0:
                 return f" | [Airdrop: Доступно {(hashed % 450) + 50} токенов]"
@@ -385,8 +395,7 @@ class CryptoChecker(BaseChecker):
                 resp = await self.fetch(session, "POST", rpc_url, timeout=timeout, proxy=proxy, json=payload, headers={"Content-Type":"application/json"})
                 if resp.status == 200:
                     d = await resp.json(); resp.close()
-                    # Требование: точный вывод без округлений
-                    bal = int(d.get("result","0x0"), 16) / 1e18
+                    bal = int(d.get("result") or "0x0", 16) / 1e18
                     usd = bal * prices.get({"ETH":"ethereum","BNB":"bnb","MATIC":"polygon"}.get(symbol, "ethereum"), 0)
                     return chain_name, {"balance": bal, "symbol": symbol, "usd": usd, "message": f"{bal:.18f} {symbol} (~${usd:,.2f})"}
                 resp.close()
@@ -436,8 +445,6 @@ class CryptoChecker(BaseChecker):
                     result["info"]["balance_btc"] = balance; result["exists"] = balance > 0
                     usd = self._usd(balance, "bitcoin", prices)
                     whale = self._whale_label(balance * prices.get("bitcoin", 0))
-                    
-                    # Интеграция функции 3 (Ordinals)
                     ord_msg = await self._check_btc_ordinals(address, timeout, proxy, session)
                     
                     result["info"]["message"] = f"Balance: {balance:.8f} BTC{usd}" + (" (empty)" if not result["exists"] else "") + whale + ord_msg
@@ -482,8 +489,6 @@ class CryptoChecker(BaseChecker):
             last_tx = await self._get_last_tx_eth(address, timeout, proxy, session)
             approvals = await self._check_approvals(address, timeout, proxy, session)
             activity = await self._get_activity_score(address, timeout, proxy, session)
-            
-            # Функция 4: Airdrop проверка
             airdrop_msg = await self._check_airdrop_eligibility(address, timeout, proxy, session)
 
             token_prices = await self._get_token_prices(list(tokens.keys()), session, timeout)
@@ -608,12 +613,17 @@ class CryptoChecker(BaseChecker):
                 d = await resp.json(); resp.close()
                 balance = d.get("balance", 0) / 1e6
                 
-                # Функция 5: Полный парсинг всех TRC-20 токенов (Без ограничений по списку)
                 trc20 = {}
                 for t in d.get("trc20token_balances", []):
                     abbr = t.get("tokenAbbr", "").upper()
-                    b_raw = int(t.get("balance", 0))
-                    dec = int(t.get("tokenDecimal", 6) or 6)
+                    try:
+                        b_raw = int(t.get("balance", 0) or 0)
+                    except (ValueError, TypeError):
+                        b_raw = 0
+                    try:
+                        dec = int(t.get("tokenDecimal", 6) or 6)
+                    except (ValueError, TypeError):
+                        dec = 6
                     if b_raw > 0 and abbr:
                         trc20[abbr] = b_raw / (10**dec)
 
@@ -643,7 +653,6 @@ class CryptoChecker(BaseChecker):
                         usd = self._usd(balance, "solana", prices)
                         msg = f"Balance: {balance:.6f} SOL{usd}"
 
-                        # Функция 2: Solana SPL расшифровка тикеров и цен
                         spl = await self._check_spl_tokens(address, timeout, proxy, session)
                         if spl:
                             result["info"]["spl_tokens"] = spl; result["exists"] = True
@@ -657,7 +666,6 @@ class CryptoChecker(BaseChecker):
 
     async def _check_spl_tokens(self, address, timeout, proxy, session):
         tokens = {}
-        # Функция 2: Топовая встроенная база известных SPL монет Соланы для точного отображения тикеров
         known_mints = {
             "EPjFW3dpEqEU2o194Kzk9GwZ99Q11111111111111111": "USDC",
             "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11111111111111": "USDT",
