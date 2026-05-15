@@ -14,8 +14,8 @@ from urllib.parse import urlparse
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-# Установлена актуальная версия v1.0.45
-APP_VERSION = "1.0.45"
+# Установлена актуальная версия v1.0.46
+APP_VERSION = "1.0.46"
 
 if platform.system() == "Windows":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())

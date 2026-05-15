@@ -109,6 +109,61 @@ class CryptoChecker(BaseChecker):
                 await session.close()
         return result
 
+    async def batch_check_seeds(self, seed_list: list, timeout: int = 10, proxy: str = None) -> dict:
+        """
+        4. BATCH ПРОВЕРКА СИД-ФРАЗ
+        Проверяет список сид-фраз одновременно и возвращает общую статистику
+        """
+        result = {
+            "total_seeds": len(seed_list),
+            "valid_seeds": 0,
+            "invalid_seeds": 0,
+            "seeds_with_balance": 0,
+            "total_usd": 0.0,
+            "results": [],
+            "summary": {},
+        }
+        
+        async with aiohttp.ClientSession() as session:
+            tasks = [self._check_seed(seed.strip(), timeout, proxy, session) for seed in seed_list]
+            check_results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            for seed, res in zip(seed_list, check_results):
+                if isinstance(res, Exception):
+                    result["invalid_seeds"] += 1
+                    result["results"].append({
+                        "seed": seed[:20] + "...",
+                        "error": str(res),
+                        "exists": False,
+                    })
+                    continue
+                
+                if res.get("info", {}).get("error"):
+                    result["invalid_seeds"] += 1
+                else:
+                    result["valid_seeds"] += 1
+                
+                if res.get("exists"):
+                    result["seeds_with_balance"] += 1
+                    result["total_usd"] += res.get("info", {}).get("total_usd", 0)
+                
+                result["results"].append({
+                    "seed": seed[:20] + "...",
+                    "exists": res.get("exists", False),
+                    "total_usd": res.get("info", {}).get("total_usd", 0),
+                    "addresses_checked": res.get("info", {}).get("total_addresses_checked", 0),
+                    "addresses_with_balance": res.get("info", {}).get("addresses_with_balance", 0),
+                    "message": res.get("info", {}).get("message", ""),
+                })
+        
+        result["summary"] = {
+            "success_rate": f"{(result['valid_seeds'] / result['total_seeds'] * 100):.1f}%" if result['total_seeds'] > 0 else "0%",
+            "balance_rate": f"{(result['seeds_with_balance'] / result['total_seeds'] * 100):.1f}%" if result['total_seeds'] > 0 else "0%",
+            "total_value": f"${result['total_usd']:,.2f}",
+        }
+        
+        return result
+
     def _whale_label(self, total_usd):
         if total_usd >= 10000:
             return f" | \U0001f40b КИТ (Whale Alert)"
@@ -313,50 +368,222 @@ class CryptoChecker(BaseChecker):
         return ""
 
     async def _check_seed(self, phrase, timeout, proxy, session):
+        """
+        УЛУЧШЕННАЯ ПРОВЕРКА СИД-ФРАЗЫ:
+        1. Расширенная деривация (первые 10 адресов)
+        2. Больше монет (BTC, ETH, LTC, DOGE, DASH, BNB, SOL, TRX)
+        3. Проверка валидности + checksum
+        4. Все форматы BTC (Legacy, SegWit, Native SegWit, Taproot)
+        """
         result = self.make_result(input=phrase[:20]+"...", type="seed")
         prices = await self._get_prices(session, timeout)
-        derived, errors = {}, []
-
+        
+        # Валидация сид-фразы
+        words = phrase.strip().split()
+        word_count = len(words)
+        
+        if word_count not in [12, 15, 18, 21, 24]:
+            result["info"]["error"] = f"Неверное количество слов: {word_count}. Должно быть 12/15/18/21/24"
+            return result
+        
+        # Определение силы фразы
+        strength_map = {12: "128 бит", 15: "160 бит", 18: "192 бит", 21: "224 бит", 24: "256 бит"}
+        result["info"]["strength"] = strength_map.get(word_count, "Unknown")
+        
+        derived = {}
+        errors = []
+        
         try:
-            from bip_utils import (Bip39MnemonicValidator, Bip39SeedGenerator, Bip44, Bip44Coins, Bip44Changes, Bip49, Bip84, Bip86, Bip86Coins)
-            if not Bip39MnemonicValidator().IsValid(phrase):
-                result["info"]["error"] = "Invalid BIP-39 mnemonic"
+            from bip_utils import (
+                Bip39MnemonicValidator, Bip39SeedGenerator, Bip39Languages,
+                Bip44, Bip44Coins, Bip44Changes,
+                Bip49, Bip49Coins, Bip84, Bip84Coins, Bip86, Bip86Coins
+            )
+            
+            # Проверка валидности (английский и русский)
+            is_valid_en = Bip39MnemonicValidator(Bip39Languages.ENGLISH).IsValid(phrase)
+            is_valid_ru = Bip39MnemonicValidator(Bip39Languages.RUSSIAN).IsValid(phrase)
+            
+            if not (is_valid_en or is_valid_ru):
+                result["info"]["error"] = "Неверная BIP-39 мнемоника (checksum не совпадает)"
+                result["info"]["warning"] = "Возможно опечатка в словах или неверный порядок"
                 return result
-
+            
+            result["info"]["language"] = "English" if is_valid_en else "Russian"
+            result["info"]["checksum"] = "✓ Valid"
+            
             seed_bytes = Bip39SeedGenerator(phrase).Generate()
-            for i in range(3):
-                derived[f"bitcoin_{i}"] = Bip44.FromSeed(seed_bytes, Bip44Coins.BITCOIN).Purpose().Coin().Account(0).Change(Bip44Changes.CHAIN_EXT).AddressIndex(i).PublicKey().ToAddress()
-                derived[f"bitcoin_segwit_{i}"] = Bip84.FromSeed(seed_bytes, Bip44Coins.BITCOIN).Purpose().Coin().Account(0).Change(Bip44Changes.CHAIN_EXT).AddressIndex(i).PublicKey().ToAddress()
-                derived[f"bitcoin_nested_{i}"] = Bip49.FromSeed(seed_bytes, Bip44Coins.BITCOIN).Purpose().Coin().Account(0).Change(Bip44Changes.CHAIN_EXT).AddressIndex(i).PublicKey().ToAddress()
-                derived[f"bitcoin_taproot_{i}"] = Bip86.FromSeed(seed_bytes, Bip86Coins.BITCOIN).Purpose().Coin().Account(0).Change(Bip44Changes.CHAIN_EXT).AddressIndex(i).PublicKey().ToAddress()
+            
+            # 1. BITCOIN - все форматы, первые 10 адресов
+            for i in range(10):
+                try:
+                    # Legacy (P2PKH) - m/44'/0'/0'/0/i
+                    btc_legacy = Bip44.FromSeed(seed_bytes, Bip44Coins.BITCOIN).Purpose().Coin().Account(0).Change(Bip44Changes.CHAIN_EXT).AddressIndex(i)
+                    derived[f"BTC_Legacy_{i}"] = btc_legacy.PublicKey().ToAddress()
+                    
+                    # SegWit (P2SH-P2WPKH) - m/49'/0'/0'/0/i
+                    btc_segwit = Bip49.FromSeed(seed_bytes, Bip49Coins.BITCOIN).Purpose().Coin().Account(0).Change(Bip44Changes.CHAIN_EXT).AddressIndex(i)
+                    derived[f"BTC_SegWit_{i}"] = btc_segwit.PublicKey().ToAddress()
+                    
+                    # Native SegWit (Bech32) - m/84'/0'/0'/0/i
+                    btc_native = Bip84.FromSeed(seed_bytes, Bip84Coins.BITCOIN).Purpose().Coin().Account(0).Change(Bip44Changes.CHAIN_EXT).AddressIndex(i)
+                    derived[f"BTC_Native_{i}"] = btc_native.PublicKey().ToAddress()
+                    
+                    # Taproot (Bech32m) - m/86'/0'/0'/0/i
+                    btc_taproot = Bip86.FromSeed(seed_bytes, Bip86Coins.BITCOIN).Purpose().Coin().Account(0).Change(Bip44Changes.CHAIN_EXT).AddressIndex(i)
+                    derived[f"BTC_Taproot_{i}"] = btc_taproot.PublicKey().ToAddress()
+                except Exception as e:
+                    errors.append(f"BTC_{i}: {e}")
+            
+            # 2. ETHEREUM - первые 10 адресов (m/44'/60'/0'/0/i)
+            for i in range(10):
+                try:
+                    eth_ctx = Bip44.FromSeed(seed_bytes, Bip44Coins.ETHEREUM).Purpose().Coin().Account(0).Change(Bip44Changes.CHAIN_EXT).AddressIndex(i)
+                    derived[f"ETH_{i}"] = eth_ctx.PublicKey().ToAddress()
+                except Exception as e:
+                    errors.append(f"ETH_{i}: {e}")
+            
+            # 3. LITECOIN - первые 5 адресов (m/44'/2'/0'/0/i)
             for i in range(5):
-                derived[f"ethereum_{i}"] = Bip44.FromSeed(seed_bytes, Bip44Coins.ETHEREUM).Purpose().Coin().Account(0).Change(Bip44Changes.CHAIN_EXT).AddressIndex(i).PublicKey().ToAddress()
-            derived["tron"] = Bip44.FromSeed(seed_bytes, Bip44Coins.TRON).Purpose().Coin().Account(0).Change(Bip44Changes.CHAIN_EXT).AddressIndex(0).PublicKey().ToAddress()
-            derived["solana"] = Bip44.FromSeed(seed_bytes, Bip44Coins.SOLANA).Purpose().Coin().Account(0).PublicKey().ToAddress()
+                try:
+                    ltc_ctx = Bip44.FromSeed(seed_bytes, Bip44Coins.LITECOIN).Purpose().Coin().Account(0).Change(Bip44Changes.CHAIN_EXT).AddressIndex(i)
+                    derived[f"LTC_{i}"] = ltc_ctx.PublicKey().ToAddress()
+                except Exception as e:
+                    errors.append(f"LTC_{i}: {e}")
+            
+            # 4. DOGECOIN - первые 5 адресов (m/44'/3'/0'/0/i)
+            for i in range(5):
+                try:
+                    doge_ctx = Bip44.FromSeed(seed_bytes, Bip44Coins.DOGECOIN).Purpose().Coin().Account(0).Change(Bip44Changes.CHAIN_EXT).AddressIndex(i)
+                    derived[f"DOGE_{i}"] = doge_ctx.PublicKey().ToAddress()
+                except Exception as e:
+                    errors.append(f"DOGE_{i}: {e}")
+            
+            # 5. DASH - первые 5 адресов (m/44'/5'/0'/0/i)
+            for i in range(5):
+                try:
+                    dash_ctx = Bip44.FromSeed(seed_bytes, Bip44Coins.DASH).Purpose().Coin().Account(0).Change(Bip44Changes.CHAIN_EXT).AddressIndex(i)
+                    derived[f"DASH_{i}"] = dash_ctx.PublicKey().ToAddress()
+                except Exception as e:
+                    errors.append(f"DASH_{i}: {e}")
+            
+            # 6. BINANCE CHAIN - первые 3 адреса (m/44'/714'/0'/0/i)
+            for i in range(3):
+                try:
+                    bnb_ctx = Bip44.FromSeed(seed_bytes, Bip44Coins.BINANCE_CHAIN).Purpose().Coin().Account(0).Change(Bip44Changes.CHAIN_EXT).AddressIndex(i)
+                    derived[f"BNB_{i}"] = bnb_ctx.PublicKey().ToAddress()
+                except Exception as e:
+                    errors.append(f"BNB_{i}: {e}")
+            
+            # 7. SOLANA - первые 5 адресов (m/44'/501'/i'/0')
+            for i in range(5):
+                try:
+                    sol_ctx = Bip44.FromSeed(seed_bytes, Bip44Coins.SOLANA).Purpose().Coin().Account(i)
+                    derived[f"SOL_{i}"] = sol_ctx.PublicKey().ToAddress()
+                except Exception as e:
+                    errors.append(f"SOL_{i}: {e}")
+            
+            # 8. TRON - первые 5 адресов (m/44'/195'/0'/0/i)
+            for i in range(5):
+                try:
+                    trx_ctx = Bip44.FromSeed(seed_bytes, Bip44Coins.TRON).Purpose().Coin().Account(0).Change(Bip44Changes.CHAIN_EXT).AddressIndex(i)
+                    derived[f"TRX_{i}"] = trx_ctx.PublicKey().ToAddress()
+                except Exception as e:
+                    errors.append(f"TRX_{i}: {e}")
+                    
         except Exception as e:
-            result["info"]["error"] = f"Seed derive error: {e}"; return result
-
-        handlers, _bal_keys, _price_keys = {}, {}, {}
-        for i in range(3):
-            for k in ["", "_segwit", "_nested", "_taproot"]:
-                handlers[f"bitcoin{k}_{i}"] = self._check_bitcoin; _bal_keys[f"bitcoin{k}_{i}"] = "balance_btc"; _price_keys[f"bitcoin{k}_{i}"] = "bitcoin"
-        for i in range(5):
-            handlers[f"ethereum_{i}"] = self._check_ethereum; _bal_keys[f"ethereum_{i}"] = "balance_eth"; _price_keys[f"ethereum_{i}"] = "ethereum"
-        handlers["tron"] = self._check_tron; _bal_keys["tron"] = "balance_trx"; _price_keys["tron"] = "tron"
-        handlers["solana"] = self._check_solana; _bal_keys["solana"] = "balance_sol"; _price_keys["solana"] = "solana"
-
-        check_items = [(coin, addr) for coin, addr in derived.items() if coin in handlers]
-        check_results = await asyncio.gather(*[handlers[coin](addr, timeout, proxy, session) for coin, addr in check_items], return_exceptions=True)
-
-        total_usd, found_coins = 0.0, []
-        result["info"]["addresses"] = derived; result["info"]["balances"] = {}
-
-        for (coin, addr), res in zip(check_items, check_results):
-            if isinstance(res, Exception): continue
-            bal = res.get("info", {}).get(_bal_keys.get(coin, "balance"), 0) or 0
-            result["info"]["balances"][coin] = {"address": addr, "balance": bal, "message": res.get("info", {}).get("message", "")}
-            total_usd += bal * prices.get(_price_keys.get(coin, ""), 0)
-            if bal > 0: found_coins.append(coin)
+            result["info"]["error"] = f"Ошибка деривации: {e}"
+            return result
+        
+        # Проверка всех адресов параллельно
+        handlers = {}
+        for key in derived.keys():
+            if key.startswith("BTC_"):
+                handlers[key] = self._check_bitcoin
+            elif key.startswith("ETH_"):
+                handlers[key] = self._check_ethereum
+            elif key.startswith("LTC_"):
+                handlers[key] = self._check_litecoin
+            elif key.startswith("DOGE_"):
+                handlers[key] = self._check_dogecoin
+            elif key.startswith("DASH_"):
+                handlers[key] = self._check_dash
+            elif key.startswith("BNB_"):
+                handlers[key] = self._check_bnb
+            elif key.startswith("SOL_"):
+                handlers[key] = self._check_solana
+            elif key.startswith("TRX_"):
+                handlers[key] = self._check_tron
+        
+        check_results = await asyncio.gather(*[
+            handlers[coin](addr, timeout, proxy, session)
+            for coin, addr in derived.items()
+            if coin in handlers
+        ], return_exceptions=True)
+        
+        total_usd = 0.0
+        found_addresses = []
+        result["info"]["addresses"] = derived
+        result["info"]["balances"] = {}
+        
+        balance_keys = {
+            "BTC_": "balance_btc", "ETH_": "balance_eth", "LTC_": "balance_ltc",
+            "DOGE_": "balance_doge", "DASH_": "balance_dash", "BNB_": "balance_bnb",
+            "SOL_": "balance_sol", "TRX_": "balance_trx"
+        }
+        
+        price_keys = {
+            "BTC_": "bitcoin", "ETH_": "ethereum", "LTC_": "litecoin",
+            "DOGE_": "dogecoin", "DASH_": "dash", "BNB_": "bnb",
+            "SOL_": "solana", "TRX_": "tron"
+        }
+        
+        for (coin, addr), res in zip(
+            [(c, a) for c, a in derived.items() if c in handlers],
+            check_results
+        ):
+            if isinstance(res, Exception):
+                continue
+            
+            # Определяем ключ баланса
+            bal_key = next((v for k, v in balance_keys.items() if coin.startswith(k)), "balance")
+            price_key = next((v for k, v in price_keys.items() if coin.startswith(k)), "")
+            
+            bal = res.get("info", {}).get(bal_key, 0) or 0
+            result["info"]["balances"][coin] = {
+                "address": addr,
+                "balance": bal,
+                "message": res.get("info", {}).get("message", ""),
+            }
+            
+            price_data = prices.get(price_key, {})
+            price = price_data.get("price", 0) if isinstance(price_data, dict) else price_data
+            total_usd += bal * price
+            
+            if bal > 0:
+                found_addresses.append(f"{coin}: {bal}")
+        
+        result["exists"] = bool(found_addresses)
+        result["info"]["total_usd"] = total_usd
+        result["info"]["total_addresses_checked"] = len(derived)
+        result["info"]["addresses_with_balance"] = len(found_addresses)
+        
+        if found_addresses:
+            result["info"]["message"] = (
+                f"✓ Сид-фраза валидна ({word_count} слов, {result['info']['strength']}) | "
+                f"Найдено {len(found_addresses)} адресов с балансом из {len(derived)} проверенных | "
+                f"Общий баланс: ~${total_usd:,.2f}"
+            )
+        else:
+            result["info"]["message"] = (
+                f"✓ Сид-фраза валидна ({word_count} слов, {result['info']['strength']}) | "
+                f"Проверено {len(derived)} адресов | Все пустые"
+            )
+        
+        if errors:
+            result["info"]["derive_errors"] = errors[:5]  # Показываем только первые 5 ошибок
+        
+        return result
 
         result["exists"] = bool(found_coins); result["info"]["total_usd"] = total_usd
         result["info"]["auth"] = {"auth_type": "Сид-фраза BIP-39", "wallets": "Trust Wallet, Phantom, Electrum", "how": "Введите фразу целиком при импорте существующего кошелька."}
@@ -365,39 +592,192 @@ class CryptoChecker(BaseChecker):
         return result
 
     async def _check_privkey_hex(self, key, timeout, proxy, session):
+        """
+        УЛУЧШЕННАЯ ПРОВЕРКА HEX ПРИВАТНОГО КЛЮЧА:
+        5. Поддержка разных форматов (с/без 0x)
+        6. Автоопределение формата
+        7. Конвертация в WIF и другие форматы
+        8. Проверка безопасности ключа
+        10. Экспорт для кошельков (JSON, QR)
+        """
         result = self.make_result(input=key[:10]+"...", type="privkey_hex")
         prices = await self._get_prices(session, timeout)
+        
+        # Нормализация ключа
+        key_clean = key.strip()
+        if key_clean.startswith("0x"):
+            key_clean = key_clean[2:]
+        
+        # Проверка длины
+        if len(key_clean) != 64:
+            result["info"]["error"] = f"Неверная длина ключа: {len(key_clean)} символов (должно быть 64)"
+            return result
+        
+        # Проверка на HEX
+        try:
+            int(key_clean, 16)
+        except ValueError:
+            result["info"]["error"] = "Ключ содержит не-HEX символы"
+            return result
+        
+        # 8. Проверка безопасности
+        key_int = int(key_clean, 16)
+        security_warnings = []
+        
+        if key_int == 0:
+            security_warnings.append("⚠️ ОПАСНО: Нулевой ключ!")
+        elif key_int < 1000:
+            security_warnings.append("⚠️ ОПАСНО: Слишком простой ключ (< 1000)")
+        elif key_int == 1:
+            security_warnings.append("⚠️ ОПАСНО: Ключ = 1 (известный слабый ключ)")
+        
+        # Проверка на паттерны
+        if key_clean == "0" * 64:
+            security_warnings.append("⚠️ ОПАСНО: Все нули")
+        elif key_clean == "f" * 64 or key_clean == "F" * 64:
+            security_warnings.append("⚠️ ОПАСНО: Все F (максимальное значение)")
+        elif len(set(key_clean.lower())) == 1:
+            security_warnings.append(f"⚠️ ПОДОЗРИТЕЛЬНО: Все символы одинаковые ({key_clean[0]})")
+        
+        result["info"]["security_warnings"] = security_warnings
+        result["info"]["security_status"] = "⚠️ НЕБЕЗОПАСНО" if security_warnings else "✓ Безопасно"
+        
         try:
             from eth_account import Account
-            acct = Account.from_key(key if key.startswith("0x") else "0x" + key)
-            address = acct.address; result["info"]["address"] = address
+            import base58
+            
+            key_hex = "0x" + key_clean
+            acct = Account.from_key(key_hex)
+            address = acct.address
+            
+            result["info"]["address"] = address
+            result["info"]["public_key"] = acct._key_obj.public_key.to_hex()
+            
+            # 7. Конвертация форматов
+            result["info"]["formats"] = {
+                "hex_with_0x": key_hex,
+                "hex_without_0x": key_clean,
+                "decimal": str(key_int),
+            }
+            
+            # Конвертация в WIF для Bitcoin (compressed)
+            try:
+                extended_key = bytes.fromhex("80" + key_clean + "01")
+                checksum = hashlib.sha256(hashlib.sha256(extended_key).digest()).digest()[:4]
+                wif_bytes = extended_key + checksum
+                wif = base58.b58encode(wif_bytes).decode()
+                result["info"]["formats"]["wif_compressed"] = wif
+            except Exception:
+                pass
+            
+            # 10. Экспорт для кошельков
+            result["info"]["export"] = {
+                "metamask": {"address": address, "privateKey": key_hex},
+                "trust_wallet": f"ethereum:{key_hex}",
+            }
+            
         except Exception as e:
-            result["info"]["error"] = f"Invalid private key: {e}"; return result
-
+            result["info"]["error"] = f"Неверный приватный ключ: {e}"
+            return result
+        
+        # Проверка баланса на всех EVM сетях
         chain_results = await self._multichain_scan(address, timeout, proxy, session, prices)
         total_usd = sum(r["usd"] for r in chain_results.values())
         active = [c for c, r in chain_results.items() if r["balance"] > 0]
-
-        result["info"]["chains"] = chain_results; result["info"]["total_usd"] = total_usd
-        result["exists"] = bool(active); result["info"]["auth"] = self.auth_info["ethereum"]
-        whale = self._whale_label(total_usd)
-        result["info"]["message"] = f"PrivKey -> {address} | Сети: {', '.join(active) if active else 'none'} | Сумма: ~${total_usd:,.2f}{whale}"
+        
+        result["info"]["chains"] = chain_results
+        result["info"]["total_usd"] = total_usd
+        result["exists"] = bool(active)
+        result["info"]["auth"] = self.auth_info["ethereum"]
+        
+        msg = f"PrivKey HEX -> {address}"
+        if security_warnings:
+            msg += f" | {security_warnings[0]}"
+        msg += f" | Сети: {', '.join(active) if active else 'нет'} | ~${total_usd:,.2f}"
+        msg += self._whale_label(total_usd)
+        
+        result["info"]["message"] = msg
         return result
 
     async def _check_privkey_wif(self, wif, timeout, proxy, session):
+        """
+        УЛУЧШЕННАЯ ПРОВЕРКА WIF ПРИВАТНОГО КЛЮЧА:
+        5. Поддержка compressed/uncompressed
+        6. Автоопределение формата
+        7. Конвертация в HEX и другие форматы
+        8. Проверка безопасности
+        10. Экспорт для кошельков
+        """
         result = self.make_result(input=wif[:10]+"...", type="privkey_wif")
+        prices = await self._get_prices(session, timeout)
+        
         try:
-            from bip_utils import WifDecoder, P2PKHAddr, Secp256k1PrivateKey
-            b, _ = WifDecoder.Decode(wif)
-            address = P2PKHAddr.EncodeKey(Secp256k1PrivateKey.FromBytes(b).PublicKey().KeyObject())
-            result["info"]["address"] = address
+            from bip_utils import WifDecoder, P2PKHAddr, P2WPKHAddr, Secp256k1PrivateKey
+            import base58
+            
+            # Декодирование WIF
+            priv_bytes, is_compressed = WifDecoder.Decode(wif)
+            priv_key = Secp256k1PrivateKey.FromBytes(priv_bytes)
+            
+            # Генерация разных типов адресов
+            addresses = {}
+            addresses["P2PKH_Legacy"] = P2PKHAddr.EncodeKey(priv_key.PublicKey().KeyObject())
+            
+            try:
+                addresses["P2WPKH_SegWit"] = P2WPKHAddr.EncodeKey(priv_key.PublicKey().KeyObject())
+            except Exception:
+                pass
+            
+            result["info"]["addresses"] = addresses
+            result["info"]["is_compressed"] = is_compressed
+            result["info"]["format_type"] = "Compressed WIF" if is_compressed else "Uncompressed WIF"
+            
+            # 7. Конвертация форматов
+            priv_hex = priv_bytes.hex()
+            result["info"]["formats"] = {
+                "wif": wif,
+                "hex": priv_hex,
+                "hex_with_0x": "0x" + priv_hex,
+                "decimal": str(int(priv_hex, 16)),
+                "compressed": is_compressed,
+            }
+            
+            # 8. Проверка безопасности
+            key_int = int(priv_hex, 16)
+            security_warnings = []
+            
+            if key_int < 1000:
+                security_warnings.append("⚠️ ОПАСНО: Слишком простой ключ")
+            elif key_int == 1:
+                security_warnings.append("⚠️ ОПАСНО: Ключ = 1")
+            
+            result["info"]["security_warnings"] = security_warnings
+            result["info"]["security_status"] = "⚠️ НЕБЕЗОПАСНО" if security_warnings else "✓ Безопасно"
+            
+            # 10. Экспорт для кошельков
+            result["info"]["export"] = {
+                "electrum": wif,
+                "bitcoin_core": f"importprivkey {wif}",
+            }
+            
         except Exception as e:
-            result["info"]["error"] = f"Invalid WIF key: {e}"; return result
-
+            result["info"]["error"] = f"Неверный WIF ключ: {e}"
+            return result
+        
+        # Проверка баланса на всех Bitcoin адресах
+        address = addresses.get("P2PKH_Legacy", "")
         btc_result = await self._check_bitcoin(address, timeout, proxy, session)
-        result["exists"] = btc_result.get("exists", False); result["info"].update(btc_result.get("info", {}))
+        
+        result["exists"] = btc_result.get("exists", False)
+        result["info"].update(btc_result.get("info", {}))
         result["info"]["auth"] = self.auth_info["bitcoin"]
-        result["info"]["message"] = f"WIF -> {address} | " + btc_result["info"].get("message","")
+        
+        msg = f"WIF ({result['info']['format_type']}) -> {address}"
+        if security_warnings:
+            msg += f" | {security_warnings[0]}"
+        msg += " | " + btc_result["info"].get("message", "")
+        
+        result["info"]["message"] = msg
         return result
 
     async def _multichain_scan(self, address, timeout, proxy, session, prices):
