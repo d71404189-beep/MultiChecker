@@ -14,7 +14,8 @@ from urllib.parse import urlparse
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-APP_VERSION = "1.0.42"
+# Установлена актуальная версия v1.0.44
+APP_VERSION = "1.0.44"
 
 if platform.system() == "Windows":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -96,7 +97,7 @@ class MultiCheckerApp(ctk.CTk):
         sb = ctk.CTkFrame(self, width=220, fg_color=SIDEBAR, corner_radius=0)
         sb.grid(row=0, column=0, sticky="nsew")
         sb.grid_propagate(False)
-        sb.grid_rowconfigure(9, weight=1)
+        sb.grid_rowconfigure(8, weight=1)  # Динамический отступ для нижних кнопок настроек
         sb.grid_columnconfigure(0, weight=1)
 
         logo = ctk.CTkFrame(sb, fg_color="transparent")
@@ -105,6 +106,10 @@ class MultiCheckerApp(ctk.CTk):
                      text_color=ACCENT).pack(anchor="w")
         ctk.CTkLabel(logo, text=f"Pro  •  v{APP_VERSION}", font=("Segoe UI", 11),
                      text_color=MUTED).pack(anchor="w")
+        
+        # Фиксация автораBes Bits в интерфейсе
+        ctk.CTkLabel(logo, text="Автор: Bes Bits", font=("Segoe UI", 11, "italic"),
+                     text_color=PURPLE).pack(anchor="w", pady=(2, 0))
 
         ctk.CTkFrame(sb, height=1, fg_color=BORDER).grid(
             row=1, column=0, padx=14, pady=(6, 10), sticky="ew")
@@ -124,6 +129,7 @@ class MultiCheckerApp(ctk.CTk):
         ctk.CTkFrame(sb, height=1, fg_color=BORDER).grid(
             row=9, column=0, padx=14, pady=8, sticky="ew")
 
+        # Переключатель языковых пакетов
         lang_f = ctk.CTkFrame(sb, fg_color="transparent")
         lang_f.grid(row=10, column=0, padx=14, pady=4, sticky="ew")
         ctk.CTkLabel(lang_f, text="Язык / Language", font=("Segoe UI", 10),
@@ -137,8 +143,9 @@ class MultiCheckerApp(ctk.CTk):
         if i18n.current_lang == "ru":
             self.lang_sw.select()
 
+        # Корректное разделение строк для устранения наложений элементов
         theme_f = ctk.CTkFrame(sb, fg_color="transparent")
-        theme_f.grid(row=10, column=0, padx=14, pady=(40, 4), sticky="ew")
+        theme_f.grid(row=11, column=0, padx=14, pady=(15, 4), sticky="ew")
         ctk.CTkLabel(theme_f, text="Theme", font=("Segoe UI", 10),
                      text_color=MUTED).pack(anchor="w", padx=4)
         self.theme_sw = ctk.CTkSwitch(
@@ -150,7 +157,7 @@ class MultiCheckerApp(ctk.CTk):
 
         self._sb_status = ctk.CTkLabel(
             sb, text="● Готов", font=("Segoe UI", 11), text_color=GREEN)
-        self._sb_status.grid(row=11, column=0, padx=18, pady=(8, 18), sticky="sw")
+        self._sb_status.grid(row=12, column=0, padx=18, pady=(8, 18), sticky="sw")
 
         self._nav_highlight("All")
 
@@ -233,7 +240,6 @@ class MultiCheckerApp(ctk.CTk):
                          text_color=MUTED).grid(row=0, column=col, padx=(0, 6), sticky="w")
 
         lbl(sr, "Потоки", 0)
-        # Улучшение: Поле точного ввода потоков вместо неудобного ползунка
         w["threads"] = ctk.CTkEntry(sr, width=65, font=("Segoe UI", 12),
                                      fg_color=CARD2, border_color=BORDER,
                                      text_color=TEXT, corner_radius=8)
@@ -314,6 +320,19 @@ class MultiCheckerApp(ctk.CTk):
                        text_color=GREEN, corner_radius=6, height=30, width=36,
                        command=lambda: self.export_balance_only(w)
                        ).pack(side="left", padx=2, pady=4)
+        
+        # Кнопки ручного раздельного сохранения Сид-фраз и Приватных ключей
+        ctk.CTkButton(eg, text="🌱 SEED", fg_color="transparent",
+                       hover_color=HOVER, font=("Segoe UI", 11, "bold"),
+                       text_color=PURPLE, corner_radius=6, height=30, width=64,
+                       command=lambda: self.export_by_type(w, "seed")
+                       ).pack(side="left", padx=2, pady=4)
+
+        ctk.CTkButton(eg, text="🔑 KEY", fg_color="transparent",
+                       hover_color=HOVER, font=("Segoe UI", 11, "bold"),
+                       text_color=ORANGE, corner_radius=6, height=30, width=60,
+                       command=lambda: self.export_by_type(w, "privkey")
+                       ).pack(side="left", padx=2, pady=4)
 
         btn(bf, "◈  Стат", PURPLE, "#a371f7",
             lambda: self.show_stats(tab_name), 110).pack(side="right")
@@ -342,10 +361,15 @@ class MultiCheckerApp(ctk.CTk):
         pc = ctk.CTkFrame(body, fg_color=CARD, corner_radius=10)
         pc.grid(row=4, column=0, padx=16, pady=6, sticky="ew")
         pc.grid_columnconfigure(0, weight=1)
+        
+        # Точный прогресс-индикатор (Проценты + Количественный счётчик строк)
         w["progress"] = ctk.CTkProgressBar(pc, height=8, corner_radius=4,
                                             progress_color=ACCENT, fg_color=BORDER)
-        w["progress"].grid(row=0, column=0, padx=14, pady=10, sticky="ew")
+        w["progress"].grid(row=0, column=0, padx=(14, 120), pady=12, sticky="ew")
         w["progress"].set(0)
+        
+        w["progress_lbl"] = ctk.CTkLabel(pc, text="0% (0/0)", font=("Segoe UI", 11, "bold"), text_color=ACCENT)
+        w["progress_lbl"].grid(row=0, column=0, padx=14, pady=12, sticky="e")
 
         ff = ctk.CTkFrame(body, fg_color="transparent")
         ff.grid(row=5, column=0, padx=16, pady=(4, 0), sticky="ew")
@@ -594,6 +618,33 @@ class MultiCheckerApp(ctk.CTk):
         except Exception as e:
             self.log(w, f"Export error: {e}")
 
+    def export_by_type(self, w, rtype_filter):
+        filtered = []
+        for r in self.all_results:
+            if not r:
+                continue
+            curr_type = r.get("type", "")
+            if rtype_filter == "seed" and curr_type == "seed":
+                filtered.append(r)
+            elif rtype_filter == "privkey" and curr_type in ("privkey_hex", "privkey_wif"):
+                filtered.append(r)
+
+        if not filtered:
+            self.log(w, f"Экспорт отменён: данные по типу '{rtype_filter}' не найдены.")
+            return
+
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        fn = f"manual_{rtype_filter}_{ts}.txt"
+        try:
+            with open(fn, "w", encoding="utf-8") as f:
+                for r in filtered:
+                    inp = r.get("input", "")
+                    msg = r.get("info", {}).get("message", "")
+                    f.write(f"{inp} | {msg}\n")
+            self.log(w, i18n.t("exported").format(fn))
+        except Exception as e:
+            self.log(w, f"Export error: {e}")
+
     def remove_duplicates(self, w):
         tab = self._tab_of(w)
         if tab in self._loaded_data and self._loaded_data[tab]:
@@ -804,7 +855,6 @@ class MultiCheckerApp(ctk.CTk):
         if not raw or (len(raw) == 1 and not raw[0].strip()):
             self.log(w, i18n.t("no_data")); return
 
-        # Чтение потоков из поля ввода
         threads = self._safe_int(w["threads"].get().strip(), 100)
         timeout = self._safe_int(w["timeout"].get(), 10)
         proxy   = w["proxy"].get().strip()
@@ -818,6 +868,7 @@ class MultiCheckerApp(ctk.CTk):
         w["pill"].configure(text="⟳ Проверка...", text_color=ACCENT)
         self._sb_status.configure(text="⟳ Проверка...", text_color=ACCENT)
         w["progress"].set(0)
+        w["progress_lbl"].configure(text="0% (0/0)")
         self.log(w, i18n.t("preparing_data"))
         threading.Thread(target=self._run,
                          args=(raw, tab_name, threads, timeout, proxy, w),
@@ -921,7 +972,6 @@ class MultiCheckerApp(ctk.CTk):
                             self.after(0, lambda t=tag,i=inp,m=msg: self.log_tagged(
                                 w,"valid",f"[+] [{t}] {i} — {m}"))
                             
-                            # Автоматическое раздельное сохранение Сид-фраз и Приватников с инструкцией
                             rtype = res.get("type", "")
                             if rtype in ("seed", "privkey_hex", "privkey_wif"):
                                 filename = "seeds_valid.txt" if rtype == "seed" else "privkeys_valid.txt"
@@ -961,10 +1011,12 @@ class MultiCheckerApp(ctk.CTk):
                             msg = res.get("info",{}).get("message","Not found")
                             self.after(0, lambda t=tag,i=inp,m=msg: self.log_tagged(
                                 w,"invalid",f"[-] [{t}] {i} — {m}"))
+                    
                     if done[0] % upd == 0 or done[0] == total:
                         pv = done[0]/total
+                        pct_text = f"{int(pv * 100)}% ({done[0]}/{total})"
                         vv,iv,ev = valid[0],inv[0],err[0]
-                        self.after(0, lambda p=pv: w["progress"].set(p))
+                        self.after(0, lambda p=pv, t=pct_text: (w["progress"].set(p), w["progress_lbl"].configure(text=t)))
                         self.after(0, lambda: self._update_counters(w,vv,iv,ev,done[0]))
                     return res
 
@@ -1132,6 +1184,7 @@ class MultiCheckerApp(ctk.CTk):
         w["output"].delete("1.0", "end")
         w["input"].delete("1.0", "end")
         w["progress"].set(0)
+        w["progress_lbl"].configure(text="0% (0/0)")
         self._update_counters(w, 0, 0, 0, 0)
         w["_log_lines"] = []; w["_filter"] = "all"
         w["filter_seg"].set(i18n.t("filter_all"))
