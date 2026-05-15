@@ -8,6 +8,7 @@ import time
 import os
 
 from checkers.base_checker import BaseChecker
+from checkers.balance_formatter import BalanceFormatter  # v1.0.57: Улучшенное отображение балансов
 from checkers.crypto_extensions import (
     get_all_erc20_tokens,
     get_nfts,
@@ -941,11 +942,15 @@ class CryptoChecker(BaseChecker):
                         tx_count = cs.get("tx_count", 0)
                     
                     result["info"]["balance_btc"] = balance; result["exists"] = balance > 0
-                    usd = self._usd(balance, "bitcoin", prices)
-                    whale = self._whale_label(balance * prices.get("bitcoin", 0))
+                    
+                    # v1.0.57: Используем BalanceFormatter для читаемого отображения
+                    btc_price = prices.get("bitcoin", {}).get("price", 0) if isinstance(prices.get("bitcoin"), dict) else prices.get("bitcoin", 0)
+                    formatted_balance = BalanceFormatter.format_balance_with_emoji(balance, "BTC", btc_price)
+                    
+                    whale = self._whale_label(balance * btc_price)
                     ord_msg = await self._check_btc_ordinals(address, timeout, proxy, session)
                     
-                    result["info"]["message"] = f"Balance: {balance:.8f} BTC{usd}" + (" (empty)" if not result["exists"] else "") + whale + ord_msg
+                    result["info"]["message"] = f"Balance: {formatted_balance}" + (" (empty)" if not result["exists"] else "") + whale + ord_msg
                     return result
                 resp.close()
             except Exception: continue
@@ -1059,9 +1064,23 @@ class CryptoChecker(BaseChecker):
             })
             result["exists"] = balance > 0 or bool(tokens) or bool(bsc_tokens) or bool(polygon_tokens) or bool(defi_positions)
             
-            usd = self._usd(balance, "ethereum", prices)
-            msg = f"Balance: {balance:.18f} ETH{usd}"
-            if tokens: msg += " | Tokens: " + ", ".join(f"{v:.6f} {k}" for k,v in tokens.items())
+            # v1.0.57: Используем BalanceFormatter для читаемого отображения
+            eth_price = prices.get("ethereum", {}).get("price", 0) if isinstance(prices.get("ethereum"), dict) else prices.get("ethereum", 0)
+            formatted_balance = BalanceFormatter.format_balance_with_emoji(balance, "ETH", eth_price)
+            
+            msg = f"Balance: {formatted_balance}"
+            
+            # Форматируем токены с BalanceFormatter
+            if tokens:
+                token_parts = []
+                for symbol, amount in list(tokens.items())[:5]:  # Первые 5 токенов
+                    token_price = token_prices.get(symbol.upper(), 0)
+                    formatted_token = BalanceFormatter.format_balance(amount, symbol, True, token_price)
+                    token_parts.append(formatted_token)
+                msg += " | Tokens: " + ", ".join(token_parts)
+                if len(tokens) > 5:
+                    msg += f" + еще {len(tokens) - 5}"
+            
             if bsc_tokens: msg += " | BSC: " + ", ".join(f"{v:.2f} {k}" for k,v in bsc_tokens.items())
             if polygon_tokens: msg += " | Polygon: " + ", ".join(f"{v:.2f} {k}" for k,v in polygon_tokens.items())
             if total_token_usd > 0: msg += f" | Найдено токенов на: ~${total_token_usd:,.2f}"
@@ -1279,9 +1298,23 @@ class CryptoChecker(BaseChecker):
 
                 result["info"].update({"balance_trx": balance, "tokens": trc20})
                 result["exists"] = balance > 0 or bool(trc20)
-                usd = self._usd(balance, "tron", prices)
-                msg = f"Balance: {balance:.6f} TRX{usd}"
-                if trc20: msg += " | Токены TRC20: " + ", ".join(f"{v:.4f} {k}" for k, v in trc20.items())
+                
+                # v1.0.57: Используем BalanceFormatter для читаемого отображения
+                trx_price = prices.get("tron", {}).get("price", 0) if isinstance(prices.get("tron"), dict) else prices.get("tron", 0)
+                formatted_balance = BalanceFormatter.format_balance_with_emoji(balance, "TRX", trx_price)
+                
+                msg = f"Balance: {formatted_balance}"
+                if trc20:
+                    # Форматируем TRC20 токены
+                    token_parts = []
+                    for symbol, amount in list(trc20.items())[:5]:
+                        # Для USDT используем цену $1
+                        token_price = 1.0 if symbol == "USDT" else 0
+                        formatted_token = BalanceFormatter.format_balance(amount, symbol, True, token_price)
+                        token_parts.append(formatted_token)
+                    msg += " | TRC20: " + ", ".join(token_parts)
+                    if len(trc20) > 5:
+                        msg += f" + еще {len(trc20) - 5}"
                 if not result["exists"]: msg += " (empty)"
                 result["info"]["message"] = msg
             else: resp.close()
@@ -1300,8 +1333,12 @@ class CryptoChecker(BaseChecker):
                     if "result" in d:
                         balance = d["result"]["value"] / 1e9
                         result["info"]["balance_sol"] = balance; result["exists"] = balance > 0
-                        usd = self._usd(balance, "solana", prices)
-                        msg = f"Balance: {balance:.6f} SOL{usd}"
+                        
+                        # v1.0.57: Используем BalanceFormatter для читаемого отображения
+                        sol_price = prices.get("solana", {}).get("price", 0) if isinstance(prices.get("solana"), dict) else prices.get("solana", 0)
+                        formatted_balance = BalanceFormatter.format_balance_with_emoji(balance, "SOL", sol_price)
+                        
+                        msg = f"Balance: {formatted_balance}"
 
                         spl = await self._check_spl_tokens(address, timeout, proxy, session)
                         if spl:

@@ -23,8 +23,8 @@ except ImportError:
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-# Установлена актуальная версия v1.0.56
-APP_VERSION = "1.0.56"
+# Установлена актуальная версия v1.0.57
+APP_VERSION = "1.0.57"
 
 if platform.system() == "Windows":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -34,6 +34,7 @@ from checkers.social_checker import SocialChecker
 from checkers.crypto_checker import CryptoChecker
 from checkers.game_checker import GameChecker
 from checkers.ai_checker import AIChecker
+from checkers.balance_formatter import BalanceFormatter, LogColorizer, BalanceHighlighter
 import i18n
 
 ctk.set_appearance_mode("dark")
@@ -578,10 +579,15 @@ class MultiCheckerApp(ctk.CTk):
             text_color=TEXT, corner_radius=8, wrap="none",
         )
         w["output"].grid(row=0, column=0, padx=12, pady=12, sticky="ew")
+        
+        # Стандартные теги
         w["output"].tag_config("valid",   foreground=GREEN)
         w["output"].tag_config("invalid", foreground=MUTED)
         w["output"].tag_config("error",   foreground=YELLOW)
         w["output"].tag_config("system",  foreground=ACCENT)
+        
+        # v1.0.57: Новые цветовые теги для улучшенного отображения
+        LogColorizer.setup_textbox_tags(w["output"])
 
         w["status"] = w["pill"]
         return w
@@ -1535,6 +1541,7 @@ class MultiCheckerApp(ctk.CTk):
             w["_log_lines"] = ll[-_MAX_LOG_LINES:]
         cur_filter = w.get("_filter", "all")
         if cur_filter in ("all", tag):
+            # v1.0.57: Используем LogColorizer для автоматической цветовой подсветки
             self._log_safe(w, msg, tag)
         elif cur_filter == "balance" and tag == "valid" and "(empty)" not in msg:
             self._log_safe(w, msg, tag)
@@ -1596,8 +1603,36 @@ class MultiCheckerApp(ctk.CTk):
 
     def _log_safe(self, w, msg, tag="system"):
         try:
-            w["output"].insert("end", f"{msg}\n", tag)
-            w["output"].see("end")
+            # v1.0.57: Используем LogColorizer для автоматической цветовой подсветки
+            # Автоопределение цвета по содержимому сообщения
+            detected_type = LogColorizer.detect_log_type(msg)
+            
+            # Если это valid результат, проверяем на перевод или баланс
+            if tag == "valid":
+                if detected_type == "transfer_detected":
+                    # КРАСНЫЙ для переводов - самое важное!
+                    LogColorizer.insert_colored_text(w["output"], msg)
+                elif detected_type == "whale":
+                    # Золотой для китов
+                    LogColorizer.insert_colored_text(w["output"], msg)
+                elif detected_type == "balance_found":
+                    # Зеленый для балансов
+                    LogColorizer.insert_colored_text(w["output"], msg)
+                else:
+                    # Обычный valid (зеленый)
+                    w["output"].insert("end", f"{msg}\n", "valid")
+                    w["output"].see("end")
+            elif tag == "error":
+                # Желтый для ошибок
+                w["output"].insert("end", f"{msg}\n", "error")
+                w["output"].see("end")
+            elif tag == "invalid":
+                # Серый для невалидных
+                w["output"].insert("end", f"{msg}\n", "invalid")
+                w["output"].see("end")
+            else:
+                # Автоопределение для system и других
+                LogColorizer.insert_colored_text(w["output"], msg)
         except Exception:
             pass
 
