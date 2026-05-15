@@ -14,8 +14,8 @@ from urllib.parse import urlparse
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-# Установлена актуальная версия v1.0.48
-APP_VERSION = "1.0.48"
+# Установлена актуальная версия v1.0.49
+APP_VERSION = "1.0.49"
 
 if platform.system() == "Windows":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -387,9 +387,69 @@ class MultiCheckerApp(ctk.CTk):
                                          text_color=TEXT, corner_radius=6)
             w["min_sol"].insert(0, "0.1")
             w["min_sol"].grid(row=0, column=8, padx=4, sticky="w")
+            
+            # АВТООБМЕН ТОКЕНОВ (только для Crypto чекера)
+            swap_card = self._card(body, "🔄 Автообмен токенов")
+            swap_card.grid(row=3, column=0, padx=16, pady=6, sticky="ew")
+            swap_card.grid_columnconfigure(0, weight=1)
+            
+            # Переключатель автообмена
+            swap_header = ctk.CTkFrame(swap_card, fg_color="transparent")
+            swap_header.grid(row=1, column=0, padx=12, pady=(2, 8), sticky="ew")
+            
+            w["auto_swap_enabled"] = ctk.CTkSwitch(
+                swap_header, text="Включить автообмен", font=("Segoe UI", 13, "bold"),
+                button_color=PURPLE, progress_color=PURPLE, text_color=TEXT,
+            )
+            w["auto_swap_enabled"].grid(row=0, column=0, sticky="w")
+            
+            ctk.CTkLabel(swap_header, text="Меняет токены на ETH/BNB перед выводом", 
+                         font=("Segoe UI", 10), text_color=MUTED
+                         ).grid(row=0, column=1, padx=12, sticky="w")
+            
+            # Настройки автообмена
+            swap_settings = ctk.CTkFrame(swap_card, fg_color=CARD2, corner_radius=8)
+            swap_settings.grid(row=2, column=0, padx=12, pady=(0, 12), sticky="ew")
+            swap_settings.grid_columnconfigure((1, 3, 5, 7), weight=1)
+            
+            ctk.CTkLabel(swap_settings, text="Цель:", font=("Segoe UI", 11),
+                         text_color=MUTED).grid(row=0, column=0, padx=10, pady=8, sticky="w")
+            w["swap_target"] = ctk.CTkComboBox(swap_settings, width=100, font=("Segoe UI", 11),
+                                                values=["ETH", "BNB", "MATIC"],
+                                                fg_color=CARD, border_color=BORDER,
+                                                button_color=PURPLE, button_hover_color="#a371f7",
+                                                text_color=TEXT, corner_radius=6)
+            w["swap_target"].set("ETH")
+            w["swap_target"].grid(row=0, column=1, padx=(0, 12), pady=8, sticky="w")
+            
+            ctk.CTkLabel(swap_settings, text="Минимум USD:", font=("Segoe UI", 11),
+                         text_color=MUTED).grid(row=0, column=2, padx=10, pady=8, sticky="w")
+            w["swap_min_usd"] = ctk.CTkEntry(swap_settings, width=80, font=("Segoe UI", 11),
+                                              fg_color=CARD, border_color=BORDER,
+                                              text_color=TEXT, corner_radius=6)
+            w["swap_min_usd"].insert(0, "1.0")
+            w["swap_min_usd"].grid(row=0, column=3, padx=(0, 12), pady=8, sticky="w")
+            
+            ctk.CTkLabel(swap_settings, text="Slippage %:", font=("Segoe UI", 11),
+                         text_color=MUTED).grid(row=0, column=4, padx=10, pady=8, sticky="w")
+            w["swap_slippage"] = ctk.CTkEntry(swap_settings, width=70, font=("Segoe UI", 11),
+                                               fg_color=CARD, border_color=BORDER,
+                                               text_color=TEXT, corner_radius=6)
+            w["swap_slippage"].insert(0, "1.0")
+            w["swap_slippage"].grid(row=0, column=5, padx=(0, 12), pady=8, sticky="w")
+            
+            ctk.CTkLabel(swap_settings, text="DEX:", font=("Segoe UI", 11),
+                         text_color=MUTED).grid(row=0, column=6, padx=10, pady=8, sticky="w")
+            w["swap_dex"] = ctk.CTkComboBox(swap_settings, width=120, font=("Segoe UI", 11),
+                                             values=["Uniswap", "PancakeSwap", "QuickSwap"],
+                                             fg_color=CARD, border_color=BORDER,
+                                             button_color=PURPLE, button_hover_color="#a371f7",
+                                             text_color=TEXT, corner_radius=6)
+            w["swap_dex"].set("Uniswap")
+            w["swap_dex"].grid(row=0, column=7, padx=(0, 10), pady=8, sticky="w")
 
         bf = ctk.CTkFrame(body, fg_color="transparent")
-        bf.grid(row=3 if tab_name == "Crypto" else 2, column=0, padx=16, pady=6, sticky="ew")
+        bf.grid(row=4 if tab_name == "Crypto" else 2, column=0, padx=16, pady=6, sticky="ew")
 
         def btn(parent, text, fg, hv, cmd, width=None):
             kw = dict(text=text, fg_color=fg, hover_color=hv,
@@ -439,7 +499,7 @@ class MultiCheckerApp(ctk.CTk):
             lambda: self.show_stats(tab_name), 110).pack(side="right")
 
         cr = ctk.CTkFrame(body, fg_color="transparent")
-        cr.grid(row=4 if tab_name == "Crypto" else 3, column=0, padx=16, pady=6, sticky="ew")
+        cr.grid(row=5 if tab_name == "Crypto" else 3, column=0, padx=16, pady=6, sticky="ew")
         cr.grid_columnconfigure((0,1,2,3), weight=1)
 
         def counter(parent, col, title, color):
@@ -460,7 +520,7 @@ class MultiCheckerApp(ctk.CTk):
         w["cnt_total"]   = counter(cr, 3, "Всего",      ACCENT)
 
         pc = ctk.CTkFrame(body, fg_color=CARD, corner_radius=10)
-        pc.grid(row=5 if tab_name == "Crypto" else 4, column=0, padx=16, pady=6, sticky="ew")
+        pc.grid(row=6 if tab_name == "Crypto" else 4, column=0, padx=16, pady=6, sticky="ew")
         pc.grid_columnconfigure(0, weight=1)
         
         # Точный прогресс-индикатор (Проценты + Количественный счётчик строк)
@@ -473,7 +533,7 @@ class MultiCheckerApp(ctk.CTk):
         w["progress_lbl"].grid(row=0, column=0, padx=14, pady=12, sticky="e")
 
         ff = ctk.CTkFrame(body, fg_color="transparent")
-        ff.grid(row=6 if tab_name == "Crypto" else 5, column=0, padx=16, pady=(4, 0), sticky="ew")
+        ff.grid(row=7 if tab_name == "Crypto" else 5, column=0, padx=16, pady=(4, 0), sticky="ew")
         w["_log_lines"] = []
         w["_filter"]    = "all"
         w["filter_seg"] = ctk.CTkSegmentedButton(
@@ -491,7 +551,7 @@ class MultiCheckerApp(ctk.CTk):
         w["filter_seg"].pack(side="left")
 
         lc = ctk.CTkFrame(body, fg_color=CARD, corner_radius=10)
-        lc.grid(row=7 if tab_name == "Crypto" else 6, column=0, padx=16, pady=(6, 18), sticky="ew")
+        lc.grid(row=8 if tab_name == "Crypto" else 6, column=0, padx=16, pady=(6, 18), sticky="ew")
         lc.grid_columnconfigure(0, weight=1)
         w["output"] = ctk.CTkTextbox(
             lc, height=300, font=("Consolas", 12),
@@ -1056,6 +1116,31 @@ class MultiCheckerApp(ctk.CTk):
                         self.after(0, lambda: self.log(w, "⚠️ Автовывод включен, но адреса не указаны"))
                 else:
                     self.checkers["Crypto"].disable_auto_withdraw()
+            
+            # Настройка автообмена для Crypto
+            if tab_name == "Crypto" and "auto_swap_enabled" in w:
+                if w["auto_swap_enabled"].get():
+                    try:
+                        target_token = w["swap_target"].get().strip()
+                        min_usd = float(w["swap_min_usd"].get().strip() or "1.0")
+                        slippage = float(w["swap_slippage"].get().strip() or "1.0")
+                        dex = w["swap_dex"].get().strip().lower()
+                        
+                        self.checkers["Crypto"].enable_auto_swap(
+                            target_token=target_token,
+                            min_value_usd=min_usd,
+                            slippage=slippage,
+                            dex=dex
+                        )
+                        self.after(0, lambda: self.log(w, f"✓ Автообмен включен: {target_token} через {dex.capitalize()}"))
+                    except ValueError as e:
+                        self.after(0, lambda: self.log(w, f"⚠️ Ошибка настроек автообмена: {e}"))
+                else:
+                    self.checkers["Crypto"].disable_auto_swap()
+            
+            # Начать сессию статистики для Crypto
+            if tab_name == "Crypto":
+                self.checkers["Crypto"].start_session()
 
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
@@ -1197,6 +1282,11 @@ class MultiCheckerApp(ctk.CTk):
         self.all_results = [r for r in results if r]
         self.results     = [r for r in self.all_results if r.get("exists")]
         del results
+        
+        # Обновляем статистику сессии для Crypto
+        if tab_name == "Crypto":
+            for r in self.all_results:
+                self.checkers["Crypto"].update_session_stats(r)
 
         self.results.sort(key=lambda r: self._estimate_usd(r), reverse=True)
 
@@ -1356,6 +1446,11 @@ class MultiCheckerApp(ctk.CTk):
         if not self.all_results:
             self.log(w, i18n.t("stats_no_data")); return
 
+        # Для Crypto показываем расширенную статистику
+        if tab_name == "Crypto":
+            self._show_crypto_extended_stats(w)
+            return
+
         win = ctk.CTkToplevel(self)
         win.title(i18n.t("stats_title"))
         win.geometry("540x520")
@@ -1420,6 +1515,140 @@ class MultiCheckerApp(ctk.CTk):
                              text_color=ACCENT).pack(side="right")
         else:
             ctk.CTkLabel(sc, text="  —", font=("Segoe UI",12), text_color=MUTED).pack()
+    
+    def _show_crypto_extended_stats(self, w):
+        """Показать расширенную статистику для Crypto чекера."""
+        # Завершаем сессию для получения финальной статистики
+        self.checkers["Crypto"].end_session()
+        stats = self.checkers["Crypto"].get_session_stats()
+        
+        win = ctk.CTkToplevel(self)
+        win.title("📊 Расширенная статистика Crypto")
+        win.geometry("680x720")
+        win.configure(fg_color=BG)
+        win.attributes("-topmost", True)
+        
+        # Заголовок
+        ctk.CTkLabel(win, text="📊 Расширенная статистика",
+                     font=("Segoe UI", 20, "bold"), text_color=TEXT
+                     ).pack(pady=(20, 10))
+        
+        # Основные метрики
+        main_frame = ctk.CTkFrame(win, fg_color="transparent")
+        main_frame.pack(padx=20, pady=10, fill="x")
+        main_frame.grid_columnconfigure((0,1,2,3), weight=1)
+        
+        metrics = [
+            ("Проверено", stats["total_checked"], ACCENT),
+            ("С балансом", stats["total_with_balance"], GREEN),
+            ("Выведено", stats["total_withdrawn"], PURPLE),
+            ("Обменено", stats["total_swapped"], ORANGE),
+        ]
+        
+        for col, (label, value, color) in enumerate(metrics):
+            card = ctk.CTkFrame(main_frame, fg_color=CARD, corner_radius=12)
+            card.grid(row=0, column=col, padx=4, sticky="ew")
+            ctk.CTkLabel(card, text=label, font=("Segoe UI", 10),
+                         text_color=MUTED).pack(pady=(10, 0))
+            ctk.CTkLabel(card, text=str(value), font=("Segoe UI", 22, "bold"),
+                         text_color=color).pack()
+            ctk.CTkFrame(card, height=3, fg_color=color, corner_radius=2
+                         ).pack(fill="x", padx=12, pady=(4, 10))
+        
+        # Общая сумма и скорость
+        info_frame = ctk.CTkFrame(win, fg_color=CARD, corner_radius=10)
+        info_frame.pack(padx=20, pady=10, fill="x")
+        info_frame.grid_columnconfigure((0,1,2), weight=1)
+        
+        ctk.CTkLabel(info_frame, text="💰 Общая сумма:",
+                     font=("Segoe UI", 12), text_color=MUTED
+                     ).grid(row=0, column=0, padx=15, pady=12, sticky="w")
+        ctk.CTkLabel(info_frame, text=f"${stats['total_usd']:,.2f}",
+                     font=("Segoe UI", 16, "bold"), text_color=GREEN
+                     ).grid(row=0, column=1, padx=15, pady=12, sticky="w")
+        
+        duration_text = stats.get("duration_formatted", "N/A")
+        speed_text = f"{stats.get('checks_per_second', 0):.1f} адр/сек"
+        
+        ctk.CTkLabel(info_frame, text=f"⏱️ {duration_text}  •  ⚡ {speed_text}",
+                     font=("Segoe UI", 11), text_color=MUTED
+                     ).grid(row=0, column=2, padx=15, pady=12, sticky="e")
+        
+        # Лучшая находка
+        if stats["best_find"]["amount"] > 0:
+            best_frame = ctk.CTkFrame(win, fg_color=CARD2, corner_radius=10)
+            best_frame.pack(padx=20, pady=10, fill="x")
+            
+            ctk.CTkLabel(best_frame, text="🏆 Лучшая находка",
+                         font=("Segoe UI", 14, "bold"), text_color=YELLOW
+                         ).pack(pady=(12, 4), anchor="w", padx=15)
+            
+            best_info = ctk.CTkFrame(best_frame, fg_color="transparent")
+            best_info.pack(fill="x", padx=15, pady=(0, 12))
+            
+            ctk.CTkLabel(best_info, text=stats["best_find"]["address"],
+                         font=("Consolas", 11), text_color=TEXT
+                         ).pack(anchor="w")
+            ctk.CTkLabel(best_info, 
+                         text=f"${stats['best_find']['amount']:,.2f}  •  {stats['best_find']['chain']}",
+                         font=("Segoe UI", 12, "bold"), text_color=GREEN
+                         ).pack(anchor="w", pady=(2, 0))
+        
+        # Статистика по сетям
+        ctk.CTkLabel(win, text="📍 Статистика по сетям",
+                     font=("Segoe UI", 14, "bold"), text_color=TEXT
+                     ).pack(padx=20, pady=(10, 4), anchor="w")
+        
+        chains_frame = ctk.CTkScrollableFrame(win, fg_color=CARD, corner_radius=10, height=200)
+        chains_frame.pack(padx=20, pady=(0, 10), fill="both", expand=True)
+        
+        if stats["by_chain"]:
+            for chain, data in sorted(stats["by_chain"].items(), 
+                                     key=lambda x: x[1]["total_usd"], reverse=True):
+                row = ctk.CTkFrame(chains_frame, fg_color=CARD2, corner_radius=8)
+                row.pack(fill="x", padx=8, pady=4)
+                
+                left_frame = ctk.CTkFrame(row, fg_color="transparent")
+                left_frame.pack(side="left", padx=12, pady=8)
+                
+                ctk.CTkLabel(left_frame, text=chain.upper(),
+                             font=("Segoe UI", 12, "bold"), text_color=ACCENT
+                             ).pack(anchor="w")
+                ctk.CTkLabel(left_frame, text=f"{data['count']} адресов",
+                             font=("Segoe UI", 10), text_color=MUTED
+                             ).pack(anchor="w")
+                
+                ctk.CTkLabel(row, text=f"${data['total_usd']:,.2f}",
+                             font=("Segoe UI", 13, "bold"), text_color=GREEN
+                             ).pack(side="right", padx=12, pady=8)
+        else:
+            ctk.CTkLabel(chains_frame, text="Нет данных",
+                         font=("Segoe UI", 11), text_color=MUTED
+                         ).pack(pady=20)
+        
+        # Кнопка экспорта
+        export_btn = ctk.CTkButton(
+            win, text="💾 Экспортировать статистику",
+            font=("Segoe UI", 12, "bold"),
+            fg_color=PURPLE, hover_color="#a371f7",
+            corner_radius=8, height=38,
+            command=lambda: self._export_crypto_stats(stats)
+        )
+        export_btn.pack(padx=20, pady=(10, 20), fill="x")
+    
+    def _export_crypto_stats(self, stats):
+        """Экспортировать статистику в JSON файл."""
+        try:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"crypto_stats_{timestamp}.json"
+            
+            import json
+            with open(filename, "w", encoding="utf-8") as f:
+                json.dump(stats, f, indent=2, ensure_ascii=False)
+            
+            print(f"✓ Статистика сохранена в {filename}")
+        except Exception as e:
+            print(f"✗ Ошибка экспорта: {e}")
 
 
 if __name__ == "__main__":
