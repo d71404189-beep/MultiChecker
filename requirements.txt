@@ -10,3 +10,7 @@ mnemonic==0.21
 base58==2.1.1
 qrcode==7.4.2
 web3>=7.0.0
+
+# Новые зависимости v1.0.52
+openpyxl==3.1.2
+xlsxwriter==3.1.9

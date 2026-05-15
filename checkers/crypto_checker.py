@@ -8,6 +8,11 @@ import time
 import os
 
 from checkers.base_checker import BaseChecker
+from checkers.crypto_extensions import (
+    get_all_erc20_tokens,
+    get_nfts,
+    export_to_excel
+)
 
 _WALLET_PATTERNS = [
     ("bitcoin",   re.compile(r'^(bc1|[13])[a-zA-HJ-NP-Z0-9]{25,62}$')),
@@ -1024,10 +1029,25 @@ class CryptoChecker(BaseChecker):
         return 0.0
 
     async def _check_erc20(self, address, timeout, proxy, session):
+        """Проверка ERC-20 токенов - РАСШИРЕННАЯ ВЕРСИЯ v1.0.52"""
         balances = {}
+        
+        # 1. Сначала проверяем популярные токены (быстро)
         for s, (c, d) in _ERC20_TOKENS.items():
             v = await self._check_evm_rpc_token(address, "https://cloudflare-eth.com", c, d, timeout, proxy, session)
             if v > 0: balances[s] = v
+        
+        # 2. Затем проверяем ВСЕ остальные токены через Etherscan API
+        try:
+            all_tokens = await get_all_erc20_tokens(address, "ethereum", session, timeout)
+            for token in all_tokens:
+                symbol = token["symbol"]
+                # Пропускаем если уже проверили
+                if symbol not in balances and token["value_usd"] >= 0.01:  # Минимум $0.01
+                    balances[symbol] = token["balance"]
+        except Exception as e:
+            print(f"Ошибка проверки всех токенов: {e}")
+        
         return balances
 
     async def _check_bsc_tokens(self, address, timeout, proxy, session):
@@ -1051,17 +1071,46 @@ class CryptoChecker(BaseChecker):
         return f"Uniswap V3: {int(v)} positions" if v > 0 else ""
 
     async def _check_nft(self, address, timeout, proxy, session):
+        """Проверка NFT - РАСШИРЕННАЯ ВЕРСИЯ v1.0.52"""
         try:
-            h = {"accept": "application/json"}
-            k = os.environ.get("OPENSEA_API_KEY", "")
-            if k: h["X-API-KEY"] = k
-            resp = await self.fetch(session, "GET", f"https://api.opensea.io/api/v2/chain/ethereum/account/{address}/nfts?limit=1", timeout=timeout, proxy=proxy, headers=h)
-            if resp.status == 200:
-                d = await resp.json(); resp.close()
-                return f"{len(d.get('nfts', []))}+" if d.get("next") else str(len(d.get("nfts", [])))
-            resp.close()
-        except Exception: pass
-        return ""
+            # Получаем детальную информацию о NFT
+            nfts = await get_nfts(address, "ethereum", session, timeout)
+            
+            if not nfts:
+                return ""
+            
+            # Подсчитываем общую стоимость
+            total_value_usd = sum(nft.get("floor_price_usd", 0) for nft in nfts)
+            
+            # Формируем сообщение
+            nft_count = len(nfts)
+            msg = f"{nft_count} NFT"
+            
+            if total_value_usd > 0:
+                msg += f" (~${total_value_usd:,.2f})"
+            
+            # Добавляем топ коллекции
+            if nfts:
+                top_nft = max(nfts, key=lambda x: x.get("floor_price_usd", 0))
+                if top_nft.get("floor_price_usd", 0) > 0:
+                    msg += f" | Top: {top_nft['collection']}"
+            
+            return msg
+            
+        except Exception as e:
+            print(f"Ошибка проверки NFT: {e}")
+            # Fallback на старый метод
+            try:
+                h = {"accept": "application/json"}
+                k = os.environ.get("OPENSEA_API_KEY", "")
+                if k: h["X-API-KEY"] = k
+                resp = await self.fetch(session, "GET", f"https://api.opensea.io/api/v2/chain/ethereum/account/{address}/nfts?limit=1", timeout=timeout, proxy=proxy, headers=h)
+                if resp.status == 200:
+                    d = await resp.json(); resp.close()
+                    return f"{len(d.get('nfts', []))}+" if d.get("next") else str(len(d.get("nfts", [])))
+                resp.close()
+            except Exception: pass
+            return ""
 
     async def _check_staking(self, address, timeout, proxy, session):
         staking = {}

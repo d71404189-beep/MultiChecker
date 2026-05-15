@@ -23,8 +23,8 @@ except ImportError:
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-# Установлена актуальная версия v1.0.51
-APP_VERSION = "1.0.51"
+# Установлена актуальная версия v1.0.52
+APP_VERSION = "1.0.52"
 
 if platform.system() == "Windows":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -488,7 +488,7 @@ class MultiCheckerApp(ctk.CTk):
         eg.pack(side="left", padx=(8, 0))
         ctk.CTkLabel(eg, text="Экспорт:", font=("Segoe UI", 11),
                      text_color=MUTED).pack(side="left", padx=(10, 4))
-        for fmt, lbl_text in [("txt","TXT"),("json","JSON"),("csv","CSV")]:
+        for fmt, lbl_text in [("txt","TXT"),("json","JSON"),("csv","CSV"),("xlsx","EXCEL")]:
             ctk.CTkButton(eg, text=lbl_text, fg_color="transparent",
                            hover_color=HOVER, font=("Segoe UI", 11, "bold"),
                            text_color=ACCENT, corner_radius=6, height=30, width=54,
@@ -886,6 +886,12 @@ class MultiCheckerApp(ctk.CTk):
                         wr.writerow({k: json.dumps(v, ensure_ascii=False)
                                      if isinstance(v, dict) else v
                                      for k, v in r.items()})
+            elif fmt == "xlsx":
+                # Excel экспорт - НОВОЕ в v1.0.52
+                from checkers.crypto_extensions import export_to_excel
+                result_msg = export_to_excel(self.results, fn)
+                self.log(w, result_msg)
+                return
             else:
                 with open(fn, "w", encoding="utf-8") as f:
                     for r in self.results:
