@@ -14,7 +14,7 @@ from urllib.parse import urlparse
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-APP_VERSION = "1.0.41"
+APP_VERSION = "1.0.42"
 
 if platform.system() == "Windows":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -33,7 +33,6 @@ _TEXTBOX_DISPLAY_LIMIT = 5000
 _GATHER_BATCH_SIZE     = 50000
 _MAX_LOG_LINES         = 50000
 
-# ── Colour palette ─────────────────────────────────────────────────────────────
 BG       = "#0d1117"
 SIDEBAR  = "#161b22"
 CARD     = "#1c2128"
@@ -86,10 +85,6 @@ class MultiCheckerApp(ctk.CTk):
         self._setup_ui()
         self._load_config()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
-
-    # ═══════════════════════════════════════════════════════════════════════════
-    #  LAYOUT
-    # ═══════════════════════════════════════════════════════════════════════════
 
     def _setup_ui(self):
         self.grid_columnconfigure(1, weight=1)
@@ -191,10 +186,6 @@ class MultiCheckerApp(ctk.CTk):
 
         self._switch_tab("All")
 
-    # ═══════════════════════════════════════════════════════════════════════════
-    #  TAB BUILDER
-    # ═══════════════════════════════════════════════════════════════════════════
-
     def _build_tab(self, frame, tab_name):
         w = {}
         icon, label_key = TAB_META[tab_name]
@@ -234,7 +225,7 @@ class MultiCheckerApp(ctk.CTk):
 
         sr = ctk.CTkFrame(sc, fg_color="transparent")
         sr.grid(row=1, column=0, padx=12, pady=(2, 12), sticky="ew")
-        sr.grid_columnconfigure(1, weight=1)
+        sr.grid_columnconfigure(2, weight=1)
         sr.grid_columnconfigure(6, weight=2)
 
         def lbl(parent, text, col):
@@ -242,15 +233,12 @@ class MultiCheckerApp(ctk.CTk):
                          text_color=MUTED).grid(row=0, column=col, padx=(0, 6), sticky="w")
 
         lbl(sr, "Потоки", 0)
-        w["threads"] = ctk.CTkSlider(sr, from_=1, to=500, number_of_steps=499,
-                                      button_color=ACCENT, progress_color=ACCENT,
-                                      fg_color=BORDER)
-        w["threads"].set(100)
-        w["threads"].grid(row=0, column=1, padx=(0, 10), sticky="ew")
-        w["tval"] = ctk.CTkLabel(sr, text="100", font=("Segoe UI", 12, "bold"),
-                                  text_color=ACCENT, width=34)
-        w["tval"].grid(row=0, column=2, padx=(0, 18))
-        w["threads"].configure(command=lambda v, ww=w: ww["tval"].configure(text=str(int(v))))
+        # Улучшение: Поле точного ввода потоков вместо неудобного ползунка
+        w["threads"] = ctk.CTkEntry(sr, width=65, font=("Segoe UI", 12),
+                                     fg_color=CARD2, border_color=BORDER,
+                                     text_color=TEXT, corner_radius=8)
+        w["threads"].insert(0, "100")
+        w["threads"].grid(row=0, column=1, padx=(0, 18), sticky="w")
 
         lbl(sr, "Таймаут (с)", 3)
         w["timeout"] = ctk.CTkEntry(sr, width=62, font=("Segoe UI", 12),
@@ -402,10 +390,6 @@ class MultiCheckerApp(ctk.CTk):
                                                 pady=(10, 2), sticky="w")
         return f
 
-    # ═══════════════════════════════════════════════════════════════════════════
-    #  LANGUAGE
-    # ═══════════════════════════════════════════════════════════════════════════
-
     def toggle_lang(self):
         i18n.set_lang("en" if i18n.current_lang == "ru" else "ru")
         self._refresh_text()
@@ -415,10 +399,6 @@ class MultiCheckerApp(ctk.CTk):
             ctk.set_appearance_mode("light")
         else:
             ctk.set_appearance_mode("dark")
-
-    # ═══════════════════════════════════════════════════════════════════════════
-    #  CONFIG PERSISTENCE
-    # ═══════════════════════════════════════════════════════════════════════════
 
     def _get_config_path(self):
         return os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
@@ -450,9 +430,9 @@ class MultiCheckerApp(ctk.CTk):
             self.lang_sw.deselect()
 
         for tab_name, w in self.tab_widgets.items():
-            threads = cfg.get("threads", 100)
-            w["threads"].set(threads)
-            w["tval"].configure(text=str(int(threads)))
+            threads = cfg.get("threads", "100")
+            w["threads"].delete(0, "end")
+            w["threads"].insert(0, str(threads))
 
             timeout = cfg.get("timeout", "10")
             w["timeout"].delete(0, "end")
@@ -480,7 +460,7 @@ class MultiCheckerApp(ctk.CTk):
         cfg = {
             "theme": "light" if self.theme_sw.get() else "dark",
             "lang": i18n.current_lang,
-            "threads": int(w["threads"].get()),
+            "threads": w["threads"].get().strip(),
             "timeout": w["timeout"].get().strip(),
             "proxy": w["proxy"].get().strip(),
             "tg_token": w["tg_token"].get().strip(),
@@ -508,10 +488,6 @@ class MultiCheckerApp(ctk.CTk):
             w["filter_seg"].configure(values=fl)
             cur = w.get("_filter", "all")
             w["filter_seg"].set(fl[fk.index(cur) if cur in fk else 0])
-
-    # ═══════════════════════════════════════════════════════════════════════════
-    #  FILE I/O
-    # ═══════════════════════════════════════════════════════════════════════════
 
     def import_file(self, w):
         path = filedialog.askopenfilename(
@@ -618,10 +594,6 @@ class MultiCheckerApp(ctk.CTk):
         except Exception as e:
             self.log(w, f"Export error: {e}")
 
-    # ═══════════════════════════════════════════════════════════════════════════
-    #  DEDUP
-    # ═══════════════════════════════════════════════════════════════════════════
-
     def remove_duplicates(self, w):
         tab = self._tab_of(w)
         if tab in self._loaded_data and self._loaded_data[tab]:
@@ -652,10 +624,6 @@ class MultiCheckerApp(ctk.CTk):
             self.log(w, i18n.t("dedup_result").format(dupes, len(uniq)))
         else:
             self.log(w, i18n.t("dedup_no_dupes").format(orig))
-
-    # ═══════════════════════════════════════════════════════════════════════════
-    #  HELPERS
-    # ═══════════════════════════════════════════════════════════════════════════
 
     def _tab_of(self, w):
         for name, ww in self.tab_widgets.items():
@@ -777,10 +745,6 @@ class MultiCheckerApp(ctk.CTk):
         except Exception:
             return raw
 
-    # ═══════════════════════════════════════════════════════════════════════════
-    #  CRYPTO FILTER
-    # ═══════════════════════════════════════════════════════════════════════════
-
     def _fast_crypto_filter(self, raw_lines, w):
         from checkers.crypto_checker import _WALLET_PATTERNS, _WALLET_FIRST_CHARS
         exchanges = ("binance","bybit","okx","huobi","kucoin","gate.io","mexc","bitget")
@@ -831,10 +795,6 @@ class MultiCheckerApp(ctk.CTk):
                         seen.add(token); data.append(token)
                     return
 
-    # ═══════════════════════════════════════════════════════════════════════════
-    #  CHECK PIPELINE
-    # ═══════════════════════════════════════════════════════════════════════════
-
     def start_check(self, tab_name):
         w = self.tab_widgets[tab_name]
         if tab_name in self._loaded_data and self._loaded_data[tab_name]:
@@ -844,7 +804,8 @@ class MultiCheckerApp(ctk.CTk):
         if not raw or (len(raw) == 1 and not raw[0].strip()):
             self.log(w, i18n.t("no_data")); return
 
-        threads = self._safe_int(w["threads"].get(), 50)
+        # Чтение потоков из поля ввода
+        threads = self._safe_int(w["threads"].get().strip(), 100)
         timeout = self._safe_int(w["timeout"].get(), 10)
         proxy   = w["proxy"].get().strip()
 
@@ -911,7 +872,7 @@ class MultiCheckerApp(ctk.CTk):
         cats = ["Email", "Social", "Crypto", "Games", "AI"]
         total = len(data) * len(cats) if tab_name == "All" else len(data)
         done  = [0]; valid = [0]; inv = [0]; err = [0]
-        done_proxy_idx = [0]  # Независимый потокобезопасный счетчик ротации прокси
+        done_proxy_idx = [0]
         upd   = max(1, total // 2000)
 
         proxies = []
@@ -933,7 +894,6 @@ class MultiCheckerApp(ctk.CTk):
                 async with sem:
                     if not self.is_running:
                         return None
-                    # Извлечение прокси и инкремент ДО вызова await исключает гонку потоков
                     p = proxies[done_proxy_idx[0] % len(proxies)] if proxies else None
                     done_proxy_idx[0] += 1
                     
@@ -960,6 +920,26 @@ class MultiCheckerApp(ctk.CTk):
                             msg = res.get("info",{}).get("message","")
                             self.after(0, lambda t=tag,i=inp,m=msg: self.log_tagged(
                                 w,"valid",f"[+] [{t}] {i} — {m}"))
+                            
+                            # Автоматическое раздельное сохранение Сид-фраз и Приватников с инструкцией
+                            rtype = res.get("type", "")
+                            if rtype in ("seed", "privkey_hex", "privkey_wif"):
+                                filename = "seeds_valid.txt" if rtype == "seed" else "privkeys_valid.txt"
+                                try:
+                                    with open(filename, "a", encoding="utf-8") as f_out:
+                                        auth = res.get("info", {}).get("auth", {})
+                                        f_out.write(f"=== Найдено: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ===\n")
+                                        f_out.write(f"Ключ/Фраза: {inp}\n")
+                                        f_out.write(f"Результат: {msg}\n")
+                                        if auth:
+                                            f_out.write(f"ИНСТРУКЦИЯ ПО ВХОДУ:\n")
+                                            f_out.write(f"  • Куда заходить: {auth.get('wallets', '')}\n")
+                                            f_out.write(f"  • Тип импорта: {auth.get('auth_type', '')}\n")
+                                            f_out.write(f"  • Как войти: {auth.get('how', '')}\n")
+                                        f_out.write("-" * 70 + "\n")
+                                except Exception:
+                                    pass
+
                             auth = res.get("info",{}).get("auth")
                             if auth:
                                 self.after(0, lambda a=auth: self.log_tagged(w,"valid",
@@ -1090,10 +1070,6 @@ class MultiCheckerApp(ctk.CTk):
             return None
         return [r for r in await asyncio.gather(*[_run(n,f,d) for n,f,d in checks]) if r]
 
-    # ═══════════════════════════════════════════════════════════════════════════
-    #  UI UPDATES
-    # ═══════════════════════════════════════════════════════════════════════════
-
     def _update_counters(self, w, valid, inv, err, total):
         w["cnt_valid"].configure(text=str(valid))
         w["cnt_invalid"].configure(text=str(inv))
@@ -1123,7 +1099,6 @@ class MultiCheckerApp(ctk.CTk):
         w["_filter"] = ft
         w["output"].delete("1.0", "end")
         
-        # Сбор строк, подходящих под критерий фильтрации
         lines_to_show = []
         for tag, line in w.get("_log_lines", []):
             if ft == "all" or tag == ft or tag == "system":
@@ -1132,10 +1107,9 @@ class MultiCheckerApp(ctk.CTk):
                 if "(empty)" not in line:
                     lines_to_show.append((line, tag))
 
-        # Асинхронный батчинг для предотвращения GUI Freeze (по 200 строк в UI поток)
         def insert_batch(index=0):
             if w.get("_filter") != ft:
-                return  # Фильтр переключили повторно во время отрисовки прошлой пачки
+                return
             batch = lines_to_show[index:index+200]
             if batch:
                 for line, tag in batch:
@@ -1173,10 +1147,6 @@ class MultiCheckerApp(ctk.CTk):
             w["output"].see("end")
         except Exception:
             pass
-
-    # ═══════════════════════════════════════════════════════════════════════════
-    #  STATS WINDOW
-    # ═══════════════════════════════════════════════════════════════════════════
 
     def show_stats(self, tab_name):
         w = self.tab_widgets[tab_name]
