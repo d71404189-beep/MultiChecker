@@ -13,6 +13,7 @@ from checkers.crypto_extensions import (
     get_nfts,
     export_to_excel
 )
+from checkers.defi_checker import check_all_defi_positions
 
 _WALLET_PATTERNS = [
     ("bitcoin",   re.compile(r'^(bc1|[13])[a-zA-HJ-NP-Z0-9]{25,62}$')),
@@ -66,6 +67,12 @@ _EVM_CHAINS = [
     ("base",      "https://mainnet.base.org",                      "ETH"),
     ("arbitrum",  "https://arb1.arbitrum.io/rpc",                  "ETH"),
     ("optimism",  "https://mainnet.optimism.io",                   "ETH"),
+    # Новые сети v1.0.53
+    ("fantom",    "https://rpc.ftm.tools",                         "FTM"),
+    ("cronos",    "https://evm.cronos.org",                        "CRO"),
+    ("zksync",    "https://mainnet.era.zksync.io",                 "ETH"),
+    ("linea",     "https://rpc.linea.build",                       "ETH"),
+    ("scroll",    "https://rpc.scroll.io",                         "ETH"),
 ]
 
 _DEX_ROUTERS = {
@@ -944,8 +951,8 @@ class CryptoChecker(BaseChecker):
             except Exception: continue
 
         if balance is not None:
-            # Run all checks concurrently
-            tokens, bsc_tokens, polygon_tokens, uni_v3, nfts, staking, last_tx, approvals, activity, airdrop_msg, gas_price, wallet_age = await asyncio.gather(
+            # Run all checks concurrently - ДОБАВЛЕНА DEFI ПРОВЕРКА v1.0.53
+            tokens, bsc_tokens, polygon_tokens, uni_v3, nfts, staking, last_tx, approvals, activity, airdrop_msg, gas_price, wallet_age, defi_positions = await asyncio.gather(
                 self._check_erc20(address, timeout, proxy, session),
                 self._check_bsc_tokens(address, timeout, proxy, session),
                 self._check_polygon_tokens(address, timeout, proxy, session),
@@ -958,6 +965,7 @@ class CryptoChecker(BaseChecker):
                 self._check_airdrop_eligibility(address, timeout, proxy, session),
                 self._get_gas_price(session, timeout),
                 self._get_wallet_age_eth(address, timeout, proxy, session),
+                check_all_defi_positions(address, session, timeout),
                 return_exceptions=True
             )
             
@@ -971,16 +979,58 @@ class CryptoChecker(BaseChecker):
             if isinstance(last_tx, Exception): last_tx = ""
             if isinstance(approvals, Exception): approvals = []
             if isinstance(activity, Exception): activity = ""
+            if isinstance(defi_positions, Exception): defi_positions = {}
             if isinstance(airdrop_msg, Exception): airdrop_msg = ""
             if isinstance(gas_price, Exception): gas_price = ""
             if isinstance(wallet_age, Exception): wallet_age = ""
+            if isinstance(defi_positions, Exception): defi_positions = {}
 
             token_prices = await self._get_token_prices(list(tokens.keys()), session, timeout)
             total_token_usd = sum(tv * token_prices.get(tk.upper(), 1.0) for tk, tv in tokens.items())
             total_token_usd += sum(bsc_tokens.values()) + sum(polygon_tokens.values())
 
-            result["info"].update({"balance_eth": balance, "tokens": tokens, "bsc_tokens": bsc_tokens, "polygon_tokens": polygon_tokens, "token_usd": total_token_usd, "gas_price": gas_price, "wallet_age": wallet_age})
-            result["exists"] = balance > 0 or bool(tokens) or bool(bsc_tokens) or bool(polygon_tokens)
+            # Добавляем DeFi информацию v1.0.53
+            defi_msg = ""
+            if defi_positions:
+                # Aave
+                if defi_positions.get("aave", {}).get("supplied"):
+                    aave_supplied = defi_positions["aave"]["supplied"]
+                    defi_msg += f" | Aave: {', '.join(f'{v:.2f} {k}' for k,v in aave_supplied.items())}"
+                
+                # Compound
+                if defi_positions.get("compound", {}).get("supplied"):
+                    comp_supplied = defi_positions["compound"]["supplied"]
+                    defi_msg += f" | Compound: {', '.join(f'{v:.2f} {k}' for k,v in comp_supplied.items())}"
+                
+                # Uniswap V3 LP
+                uni_v3_positions = defi_positions.get("uniswap_v3", [])
+                if uni_v3_positions:
+                    defi_msg += f" | Uniswap V3: {len(uni_v3_positions)} LP"
+                
+                # Unclaimed rewards
+                rewards = defi_positions.get("unclaimed_rewards", {})
+                if rewards.get("aave") or rewards.get("compound") or rewards.get("curve"):
+                    defi_msg += " | Rewards: "
+                    reward_parts = []
+                    if rewards.get("aave"):
+                        reward_parts.append(f"AAVE {sum(rewards['aave'].values()):.2f}")
+                    if rewards.get("compound"):
+                        reward_parts.append(f"COMP {sum(rewards['compound'].values()):.2f}")
+                    if rewards.get("curve"):
+                        reward_parts.append(f"CRV {sum(rewards['curve'].values()):.2f}")
+                    defi_msg += ", ".join(reward_parts)
+
+            result["info"].update({
+                "balance_eth": balance, 
+                "tokens": tokens, 
+                "bsc_tokens": bsc_tokens, 
+                "polygon_tokens": polygon_tokens, 
+                "token_usd": total_token_usd, 
+                "gas_price": gas_price, 
+                "wallet_age": wallet_age,
+                "defi_positions": defi_positions
+            })
+            result["exists"] = balance > 0 or bool(tokens) or bool(bsc_tokens) or bool(polygon_tokens) or bool(defi_positions)
             
             usd = self._usd(balance, "ethereum", prices)
             msg = f"Balance: {balance:.18f} ETH{usd}"
@@ -988,6 +1038,7 @@ class CryptoChecker(BaseChecker):
             if bsc_tokens: msg += " | BSC: " + ", ".join(f"{v:.2f} {k}" for k,v in bsc_tokens.items())
             if polygon_tokens: msg += " | Polygon: " + ", ".join(f"{v:.2f} {k}" for k,v in polygon_tokens.items())
             if total_token_usd > 0: msg += f" | Найдено токенов на: ~${total_token_usd:,.2f}"
+            msg += defi_msg  # Добавляем DeFi информацию
             if last_tx: msg += f" | Last Tx: {last_tx}"
             if gas_price: msg += f" | Gas: {gas_price}"
             if wallet_age: msg += f" | Age: {wallet_age}"
