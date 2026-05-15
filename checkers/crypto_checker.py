@@ -57,6 +57,7 @@ _EVM_CHAINS = [
     ("ethereum",  "https://cloudflare-eth.com",                    "ETH"),
     ("bsc",       "https://bsc-dataseed.binance.org/",             "BNB"),
     ("polygon",   "https://polygon-rpc.com",                       "MATIC"),
+    ("avalanche", "https://api.avax.network/ext/bc/C/rpc",         "AVAX"),
     ("base",      "https://mainnet.base.org",                      "ETH"),
     ("arbitrum",  "https://arb1.arbitrum.io/rpc",                  "ETH"),
     ("optimism",  "https://mainnet.optimism.io",                   "ETH"),
@@ -120,26 +121,27 @@ class CryptoChecker(BaseChecker):
         if _PRICE_CACHE and (time.time() - _PRICE_CACHE_TS) < _PRICE_TTL:
             return _PRICE_CACHE
         ids = "bitcoin,ethereum,tron,solana,litecoin,dash,monero,ripple,dogecoin,binancecoin,the-open-network,cardano,matic-network,avalanche-2"
-        url = f"https://api.coingecko.com/api/v3/simple/price?ids={ids}&vs_currencies=usd"
+        url = f"https://api.coingecko.com/api/v3/simple/price?ids={ids}&vs_currencies=usd&include_24hr_change=true"
         try:
             resp = await self.fetch(session, "GET", url, timeout=timeout, proxy=None)
             if resp.status == 200:
                 d = await resp.json(); resp.close()
                 _PRICE_CACHE = {
-                    "bitcoin":   d.get("bitcoin",{}).get("usd",0),
-                    "ethereum":  d.get("ethereum",{}).get("usd",0),
-                    "tron":      d.get("tron",{}).get("usd",0),
-                    "solana":    d.get("solana",{}).get("usd",0),
-                    "litecoin":  d.get("litecoin",{}).get("usd",0),
-                    "dash":      d.get("dash",{}).get("usd",0),
-                    "monero":    d.get("monero",{}).get("usd",0),
-                    "ripple":    d.get("ripple",{}).get("usd",0),
-                    "dogecoin":  d.get("dogecoin",{}).get("usd",0),
-                    "bnb":       d.get("binancecoin",{}).get("usd",0),
-                    "ton":       d.get("the-open-network",{}).get("usd",0),
-                    "cardano":   d.get("cardano",{}).get("usd",0),
-                    "polygon":   d.get("matic-network",{}).get("usd",0),
-                    "base":      d.get("ethereum",{}).get("usd",0), 
+                    "bitcoin":   {"price": d.get("bitcoin",{}).get("usd",0), "change": d.get("bitcoin",{}).get("usd_24h_change",0)},
+                    "ethereum":  {"price": d.get("ethereum",{}).get("usd",0), "change": d.get("ethereum",{}).get("usd_24h_change",0)},
+                    "tron":      {"price": d.get("tron",{}).get("usd",0), "change": d.get("tron",{}).get("usd_24h_change",0)},
+                    "solana":    {"price": d.get("solana",{}).get("usd",0), "change": d.get("solana",{}).get("usd_24h_change",0)},
+                    "litecoin":  {"price": d.get("litecoin",{}).get("usd",0), "change": d.get("litecoin",{}).get("usd_24h_change",0)},
+                    "dash":      {"price": d.get("dash",{}).get("usd",0), "change": d.get("dash",{}).get("usd_24h_change",0)},
+                    "monero":    {"price": d.get("monero",{}).get("usd",0), "change": d.get("monero",{}).get("usd_24h_change",0)},
+                    "ripple":    {"price": d.get("ripple",{}).get("usd",0), "change": d.get("ripple",{}).get("usd_24h_change",0)},
+                    "dogecoin":  {"price": d.get("dogecoin",{}).get("usd",0), "change": d.get("dogecoin",{}).get("usd_24h_change",0)},
+                    "bnb":       {"price": d.get("binancecoin",{}).get("usd",0), "change": d.get("binancecoin",{}).get("usd_24h_change",0)},
+                    "ton":       {"price": d.get("the-open-network",{}).get("usd",0), "change": d.get("the-open-network",{}).get("usd_24h_change",0)},
+                    "cardano":   {"price": d.get("cardano",{}).get("usd",0), "change": d.get("cardano",{}).get("usd_24h_change",0)},
+                    "polygon":   {"price": d.get("matic-network",{}).get("usd",0), "change": d.get("matic-network",{}).get("usd_24h_change",0)},
+                    "avalanche": {"price": d.get("avalanche-2",{}).get("usd",0), "change": d.get("avalanche-2",{}).get("usd_24h_change",0)},
+                    "base":      {"price": d.get("ethereum",{}).get("usd",0), "change": d.get("ethereum",{}).get("usd_24h_change",0)},
                 }
                 _PRICE_CACHE_TS = time.time()
             else:
@@ -149,8 +151,18 @@ class CryptoChecker(BaseChecker):
         return _PRICE_CACHE
 
     def _usd(self, amount, coin, prices):
-        p = prices.get(coin, 0)
-        return f" (~${amount*p:,.2f})" if p and amount else ""
+        p_data = prices.get(coin, {})
+        if isinstance(p_data, dict):
+            p = p_data.get("price", 0)
+            change = p_data.get("change", 0)
+            if p and amount:
+                usd_val = amount * p
+                change_str = f" ({change:+.1f}%)" if change else ""
+                return f" (~${usd_val:,.2f}{change_str})"
+        elif isinstance(p_data, (int, float)):
+            # Backward compatibility
+            return f" (~${amount*p_data:,.2f})" if p_data and amount else ""
+        return ""
 
     async def _dispatch(self, data, timeout, proxy, session):
         normalized_data = " ".join(data.strip().split())
@@ -480,22 +492,42 @@ class CryptoChecker(BaseChecker):
             except Exception: continue
 
         if balance is not None:
-            tokens = await self._check_erc20(address, timeout, proxy, session)
-            bsc_tokens = await self._check_bsc_tokens(address, timeout, proxy, session)
-            polygon_tokens = await self._check_polygon_tokens(address, timeout, proxy, session)
-            uni_v3 = await self._check_uniswap_v3_positions(address, timeout, proxy, session)
-            nfts = await self._check_nft(address, timeout, proxy, session)
-            staking = await self._check_staking(address, timeout, proxy, session)
-            last_tx = await self._get_last_tx_eth(address, timeout, proxy, session)
-            approvals = await self._check_approvals(address, timeout, proxy, session)
-            activity = await self._get_activity_score(address, timeout, proxy, session)
-            airdrop_msg = await self._check_airdrop_eligibility(address, timeout, proxy, session)
+            # Run all checks concurrently
+            tokens, bsc_tokens, polygon_tokens, uni_v3, nfts, staking, last_tx, approvals, activity, airdrop_msg, gas_price, wallet_age = await asyncio.gather(
+                self._check_erc20(address, timeout, proxy, session),
+                self._check_bsc_tokens(address, timeout, proxy, session),
+                self._check_polygon_tokens(address, timeout, proxy, session),
+                self._check_uniswap_v3_positions(address, timeout, proxy, session),
+                self._check_nft(address, timeout, proxy, session),
+                self._check_staking(address, timeout, proxy, session),
+                self._get_last_tx_eth(address, timeout, proxy, session),
+                self._check_approvals(address, timeout, proxy, session),
+                self._get_activity_score(address, timeout, proxy, session),
+                self._check_airdrop_eligibility(address, timeout, proxy, session),
+                self._get_gas_price(session, timeout),
+                self._get_wallet_age_eth(address, timeout, proxy, session),
+                return_exceptions=True
+            )
+            
+            # Handle exceptions
+            if isinstance(tokens, Exception): tokens = {}
+            if isinstance(bsc_tokens, Exception): bsc_tokens = {}
+            if isinstance(polygon_tokens, Exception): polygon_tokens = {}
+            if isinstance(uni_v3, Exception): uni_v3 = ""
+            if isinstance(nfts, Exception): nfts = ""
+            if isinstance(staking, Exception): staking = {}
+            if isinstance(last_tx, Exception): last_tx = ""
+            if isinstance(approvals, Exception): approvals = []
+            if isinstance(activity, Exception): activity = ""
+            if isinstance(airdrop_msg, Exception): airdrop_msg = ""
+            if isinstance(gas_price, Exception): gas_price = ""
+            if isinstance(wallet_age, Exception): wallet_age = ""
 
             token_prices = await self._get_token_prices(list(tokens.keys()), session, timeout)
             total_token_usd = sum(tv * token_prices.get(tk.upper(), 1.0) for tk, tv in tokens.items())
             total_token_usd += sum(bsc_tokens.values()) + sum(polygon_tokens.values())
 
-            result["info"].update({"balance_eth": balance, "tokens": tokens, "bsc_tokens": bsc_tokens, "polygon_tokens": polygon_tokens, "token_usd": total_token_usd})
+            result["info"].update({"balance_eth": balance, "tokens": tokens, "bsc_tokens": bsc_tokens, "polygon_tokens": polygon_tokens, "token_usd": total_token_usd, "gas_price": gas_price, "wallet_age": wallet_age})
             result["exists"] = balance > 0 or bool(tokens) or bool(bsc_tokens) or bool(polygon_tokens)
             
             usd = self._usd(balance, "ethereum", prices)
@@ -505,12 +537,14 @@ class CryptoChecker(BaseChecker):
             if polygon_tokens: msg += " | Polygon: " + ", ".join(f"{v:.2f} {k}" for k,v in polygon_tokens.items())
             if total_token_usd > 0: msg += f" | Найдено токенов на: ~${total_token_usd:,.2f}"
             if last_tx: msg += f" | Last Tx: {last_tx}"
+            if gas_price: msg += f" | Gas: {gas_price}"
+            if wallet_age: msg += f" | Age: {wallet_age}"
             if approvals: msg += f" | Аппрувы: {', '.join(approvals)}"
             if activity: msg += f" | Активность: {activity}"
             msg += airdrop_msg
             if not result["exists"]: msg += " (empty)"
             
-            total_eth_usd = balance * prices.get("ethereum", 0) + total_token_usd
+            total_eth_usd = balance * prices.get("ethereum", {}).get("price", 0) + total_token_usd
             result["info"]["total_usd"] = total_eth_usd; result["info"]["message"] = msg + self._whale_label(total_eth_usd)
         else:
             result["info"]["error"] = "All ETH APIs failed"
@@ -602,6 +636,48 @@ class CryptoChecker(BaseChecker):
                     return f"{datetime.utcfromtimestamp(int(txs[0].get('timeStamp', 0))).strftime('%Y-%m-%d')} ({int(txs[0].get('value', 0))/1e18:.4f} ETH)"
             resp.close()
         except Exception: pass
+        return ""
+
+    # NEW: Gas price tracker
+    async def _get_gas_price(self, session, timeout):
+        """Get current ETH gas price in Gwei."""
+        try:
+            payload = {"jsonrpc":"2.0","id":1,"method":"eth_gasPrice","params":[]}
+            resp = await self.fetch(session, "POST", "https://cloudflare-eth.com",
+                                    timeout=timeout, proxy=None,
+                                    json=payload, headers={"Content-Type":"application/json"})
+            if resp.status == 200:
+                d = await resp.json(); resp.close()
+                wei = int(d.get("result","0x0"), 16)
+                gwei = wei / 1e9
+                return f"{gwei:.1f} Gwei"
+            resp.close()
+        except Exception:
+            pass
+        return ""
+
+    # NEW: Wallet age (first transaction date)
+    async def _get_wallet_age_eth(self, address, timeout, proxy, session):
+        """Get date of first transaction."""
+        try:
+            url = f"https://api.etherscan.io/api?module=account&action=txlist&address={address}&page=1&offset=1&sort=asc"
+            k = os.environ.get("ETHERSCAN_API_KEY", "")
+            if k: url += f"&apikey={k}"
+            resp = await self.fetch(session, "GET", url, timeout=timeout, proxy=proxy)
+            if resp.status == 200:
+                d = await resp.json(); resp.close()
+                txs = d.get("result", [])
+                if txs and isinstance(txs, list) and txs[0]:
+                    ts = int(txs[0].get("timeStamp", 0))
+                    from datetime import datetime
+                    dt = datetime.utcfromtimestamp(ts).strftime("%Y-%m-%d")
+                    # Calculate age in days
+                    age_days = (time.time() - ts) // 86400
+                    return f"{dt} ({int(age_days)}d)"
+            else:
+                resp.close()
+        except Exception:
+            pass
         return ""
 
     async def _check_tron(self, address, timeout, proxy, session):
