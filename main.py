@@ -14,8 +14,8 @@ from urllib.parse import urlparse
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-# Установлена актуальная версия v1.0.47
-APP_VERSION = "1.0.47"
+# Установлена актуальная версия v1.0.48
+APP_VERSION = "1.0.48"
 
 if platform.system() == "Windows":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -287,8 +287,109 @@ class MultiCheckerApp(ctk.CTk):
         )
         w["tg_enabled"].grid(row=0, column=4, sticky="w")
 
+        # АВТОВЫВОД (только для Crypto чекера)
+        if tab_name == "Crypto":
+            aw_card = self._card(body, "💰 Автовывод средств")
+            aw_card.grid(row=2, column=0, padx=16, pady=6, sticky="ew")
+            aw_card.grid_columnconfigure(0, weight=1)
+            
+            # Переключатель автовывода
+            aw_header = ctk.CTkFrame(aw_card, fg_color="transparent")
+            aw_header.grid(row=1, column=0, padx=12, pady=(2, 8), sticky="ew")
+            
+            w["auto_withdraw_enabled"] = ctk.CTkSwitch(
+                aw_header, text="Включить автовывод", font=("Segoe UI", 13, "bold"),
+                button_color=GREEN, progress_color=GREEN, text_color=TEXT,
+            )
+            w["auto_withdraw_enabled"].grid(row=0, column=0, sticky="w")
+            
+            ctk.CTkLabel(aw_header, text="⚠️ Используйте осторожно!", 
+                         font=("Segoe UI", 10), text_color=YELLOW
+                         ).grid(row=0, column=1, padx=12, sticky="w")
+            
+            # Адреса для вывода
+            aw_addresses = ctk.CTkFrame(aw_card, fg_color=CARD2, corner_radius=8)
+            aw_addresses.grid(row=2, column=0, padx=12, pady=(0, 12), sticky="ew")
+            aw_addresses.grid_columnconfigure(1, weight=1)
+            
+            # ETH адрес
+            ctk.CTkLabel(aw_addresses, text="ETH/BSC/Polygon:", font=("Segoe UI", 11),
+                         text_color=MUTED).grid(row=0, column=0, padx=10, pady=8, sticky="w")
+            w["withdraw_eth"] = ctk.CTkEntry(aw_addresses, font=("Consolas", 11),
+                                              fg_color=CARD, border_color=BORDER,
+                                              text_color=TEXT, corner_radius=6,
+                                              placeholder_text="0x...")
+            w["withdraw_eth"].grid(row=0, column=1, padx=(0, 10), pady=8, sticky="ew")
+            
+            # BTC адрес
+            ctk.CTkLabel(aw_addresses, text="Bitcoin:", font=("Segoe UI", 11),
+                         text_color=MUTED).grid(row=1, column=0, padx=10, pady=8, sticky="w")
+            w["withdraw_btc"] = ctk.CTkEntry(aw_addresses, font=("Consolas", 11),
+                                              fg_color=CARD, border_color=BORDER,
+                                              text_color=TEXT, corner_radius=6,
+                                              placeholder_text="bc1... или 1... или 3...")
+            w["withdraw_btc"].grid(row=1, column=1, padx=(0, 10), pady=8, sticky="ew")
+            
+            # TRX адрес
+            ctk.CTkLabel(aw_addresses, text="Tron:", font=("Segoe UI", 11),
+                         text_color=MUTED).grid(row=2, column=0, padx=10, pady=8, sticky="w")
+            w["withdraw_trx"] = ctk.CTkEntry(aw_addresses, font=("Consolas", 11),
+                                              fg_color=CARD, border_color=BORDER,
+                                              text_color=TEXT, corner_radius=6,
+                                              placeholder_text="T...")
+            w["withdraw_trx"].grid(row=2, column=1, padx=(0, 10), pady=8, sticky="ew")
+            
+            # SOL адрес
+            ctk.CTkLabel(aw_addresses, text="Solana:", font=("Segoe UI", 11),
+                         text_color=MUTED).grid(row=3, column=0, padx=10, pady=8, sticky="w")
+            w["withdraw_sol"] = ctk.CTkEntry(aw_addresses, font=("Consolas", 11),
+                                              fg_color=CARD, border_color=BORDER,
+                                              text_color=TEXT, corner_radius=6,
+                                              placeholder_text="...")
+            w["withdraw_sol"].grid(row=3, column=1, padx=(0, 10), pady=(8, 12), sticky="ew")
+            
+            # Минимальные суммы
+            aw_min = ctk.CTkFrame(aw_card, fg_color="transparent")
+            aw_min.grid(row=3, column=0, padx=12, pady=(0, 12), sticky="ew")
+            aw_min.grid_columnconfigure((1, 3, 5, 7), weight=1)
+            
+            ctk.CTkLabel(aw_min, text="Минимум для вывода:", font=("Segoe UI", 11, "bold"),
+                         text_color=TEXT).grid(row=0, column=0, padx=(0, 12), sticky="w")
+            
+            ctk.CTkLabel(aw_min, text="ETH:", font=("Segoe UI", 10),
+                         text_color=MUTED).grid(row=0, column=1, padx=4, sticky="e")
+            w["min_eth"] = ctk.CTkEntry(aw_min, width=70, font=("Segoe UI", 10),
+                                         fg_color=CARD2, border_color=BORDER,
+                                         text_color=TEXT, corner_radius=6)
+            w["min_eth"].insert(0, "0.01")
+            w["min_eth"].grid(row=0, column=2, padx=4, sticky="w")
+            
+            ctk.CTkLabel(aw_min, text="BTC:", font=("Segoe UI", 10),
+                         text_color=MUTED).grid(row=0, column=3, padx=4, sticky="e")
+            w["min_btc"] = ctk.CTkEntry(aw_min, width=70, font=("Segoe UI", 10),
+                                         fg_color=CARD2, border_color=BORDER,
+                                         text_color=TEXT, corner_radius=6)
+            w["min_btc"].insert(0, "0.001")
+            w["min_btc"].grid(row=0, column=4, padx=4, sticky="w")
+            
+            ctk.CTkLabel(aw_min, text="TRX:", font=("Segoe UI", 10),
+                         text_color=MUTED).grid(row=0, column=5, padx=4, sticky="e")
+            w["min_trx"] = ctk.CTkEntry(aw_min, width=70, font=("Segoe UI", 10),
+                                         fg_color=CARD2, border_color=BORDER,
+                                         text_color=TEXT, corner_radius=6)
+            w["min_trx"].insert(0, "10")
+            w["min_trx"].grid(row=0, column=6, padx=4, sticky="w")
+            
+            ctk.CTkLabel(aw_min, text="SOL:", font=("Segoe UI", 10),
+                         text_color=MUTED).grid(row=0, column=7, padx=4, sticky="e")
+            w["min_sol"] = ctk.CTkEntry(aw_min, width=70, font=("Segoe UI", 10),
+                                         fg_color=CARD2, border_color=BORDER,
+                                         text_color=TEXT, corner_radius=6)
+            w["min_sol"].insert(0, "0.1")
+            w["min_sol"].grid(row=0, column=8, padx=4, sticky="w")
+
         bf = ctk.CTkFrame(body, fg_color="transparent")
-        bf.grid(row=2, column=0, padx=16, pady=6, sticky="ew")
+        bf.grid(row=3 if tab_name == "Crypto" else 2, column=0, padx=16, pady=6, sticky="ew")
 
         def btn(parent, text, fg, hv, cmd, width=None):
             kw = dict(text=text, fg_color=fg, hover_color=hv,
@@ -338,7 +439,7 @@ class MultiCheckerApp(ctk.CTk):
             lambda: self.show_stats(tab_name), 110).pack(side="right")
 
         cr = ctk.CTkFrame(body, fg_color="transparent")
-        cr.grid(row=3, column=0, padx=16, pady=6, sticky="ew")
+        cr.grid(row=4 if tab_name == "Crypto" else 3, column=0, padx=16, pady=6, sticky="ew")
         cr.grid_columnconfigure((0,1,2,3), weight=1)
 
         def counter(parent, col, title, color):
@@ -359,7 +460,7 @@ class MultiCheckerApp(ctk.CTk):
         w["cnt_total"]   = counter(cr, 3, "Всего",      ACCENT)
 
         pc = ctk.CTkFrame(body, fg_color=CARD, corner_radius=10)
-        pc.grid(row=4, column=0, padx=16, pady=6, sticky="ew")
+        pc.grid(row=5 if tab_name == "Crypto" else 4, column=0, padx=16, pady=6, sticky="ew")
         pc.grid_columnconfigure(0, weight=1)
         
         # Точный прогресс-индикатор (Проценты + Количественный счётчик строк)
@@ -372,7 +473,7 @@ class MultiCheckerApp(ctk.CTk):
         w["progress_lbl"].grid(row=0, column=0, padx=14, pady=12, sticky="e")
 
         ff = ctk.CTkFrame(body, fg_color="transparent")
-        ff.grid(row=5, column=0, padx=16, pady=(4, 0), sticky="ew")
+        ff.grid(row=6 if tab_name == "Crypto" else 5, column=0, padx=16, pady=(4, 0), sticky="ew")
         w["_log_lines"] = []
         w["_filter"]    = "all"
         w["filter_seg"] = ctk.CTkSegmentedButton(
@@ -390,7 +491,7 @@ class MultiCheckerApp(ctk.CTk):
         w["filter_seg"].pack(side="left")
 
         lc = ctk.CTkFrame(body, fg_color=CARD, corner_radius=10)
-        lc.grid(row=6, column=0, padx=16, pady=(6, 18), sticky="ew")
+        lc.grid(row=7 if tab_name == "Crypto" else 6, column=0, padx=16, pady=(6, 18), sticky="ew")
         lc.grid_columnconfigure(0, weight=1)
         w["output"] = ctk.CTkTextbox(
             lc, height=300, font=("Consolas", 12),
@@ -906,6 +1007,55 @@ class MultiCheckerApp(ctk.CTk):
                     len(data), 5, len(data)*5, threads)))
             else:
                 self.after(0, lambda: self.log(w, i18n.t("starting").format(len(data), threads)))
+
+            # Настройка автовывода для Crypto
+            if tab_name == "Crypto" and "auto_withdraw_enabled" in w:
+                if w["auto_withdraw_enabled"].get():
+                    addresses = {}
+                    min_amounts = {}
+                    
+                    eth_addr = w["withdraw_eth"].get().strip()
+                    btc_addr = w["withdraw_btc"].get().strip()
+                    trx_addr = w["withdraw_trx"].get().strip()
+                    sol_addr = w["withdraw_sol"].get().strip()
+                    
+                    if eth_addr:
+                        addresses["ethereum"] = eth_addr
+                        addresses["bsc"] = eth_addr
+                        addresses["polygon"] = eth_addr
+                        addresses["avalanche"] = eth_addr
+                        addresses["base"] = eth_addr
+                        addresses["arbitrum"] = eth_addr
+                        addresses["optimism"] = eth_addr
+                    if btc_addr:
+                        addresses["bitcoin"] = btc_addr
+                    if trx_addr:
+                        addresses["tron"] = trx_addr
+                    if sol_addr:
+                        addresses["solana"] = sol_addr
+                    
+                    try:
+                        min_amounts["ethereum"] = float(w["min_eth"].get().strip() or "0.01")
+                        min_amounts["bsc"] = min_amounts["ethereum"]
+                        min_amounts["polygon"] = min_amounts["ethereum"]
+                        min_amounts["avalanche"] = min_amounts["ethereum"]
+                        min_amounts["bitcoin"] = float(w["min_btc"].get().strip() or "0.001")
+                        min_amounts["tron"] = float(w["min_trx"].get().strip() or "10")
+                        min_amounts["solana"] = float(w["min_sol"].get().strip() or "0.1")
+                    except ValueError:
+                        self.after(0, lambda: self.log(w, "⚠️ Ошибка в минимальных суммах, используются значения по умолчанию"))
+                        min_amounts = {
+                            "ethereum": 0.01, "bsc": 0.01, "polygon": 0.01,
+                            "bitcoin": 0.001, "tron": 10, "solana": 0.1
+                        }
+                    
+                    if addresses:
+                        self.checkers["Crypto"].enable_auto_withdraw(addresses, min_amounts)
+                        self.after(0, lambda: self.log(w, f"✓ Автовывод включен на {len(addresses)} сетей"))
+                    else:
+                        self.after(0, lambda: self.log(w, "⚠️ Автовывод включен, но адреса не указаны"))
+                else:
+                    self.checkers["Crypto"].disable_auto_withdraw()
 
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
