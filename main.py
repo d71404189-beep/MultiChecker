@@ -14,7 +14,7 @@ from urllib.parse import urlparse
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-APP_VERSION = "1.0.40"
+APP_VERSION = "1.0.41"
 
 if platform.system() == "Windows":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -57,7 +57,6 @@ TAB_META = {
     "Games":  ("◉", "games"),
     "AI":     ("◆", "ai"),
 }
-
 
 
 class MultiCheckerApp(ctk.CTk):
@@ -105,7 +104,6 @@ class MultiCheckerApp(ctk.CTk):
         sb.grid_rowconfigure(9, weight=1)
         sb.grid_columnconfigure(0, weight=1)
 
-        # Logo block
         logo = ctk.CTkFrame(sb, fg_color="transparent")
         logo.grid(row=0, column=0, padx=18, pady=(22, 6), sticky="ew")
         ctk.CTkLabel(logo, text="MultiChecker", font=("Segoe UI", 18, "bold"),
@@ -116,7 +114,6 @@ class MultiCheckerApp(ctk.CTk):
         ctk.CTkFrame(sb, height=1, fg_color=BORDER).grid(
             row=1, column=0, padx=14, pady=(6, 10), sticky="ew")
 
-        # Nav
         self._nav_btns = {}
         for i, (tab, (icon, _)) in enumerate(TAB_META.items()):
             btn = ctk.CTkButton(
@@ -132,7 +129,6 @@ class MultiCheckerApp(ctk.CTk):
         ctk.CTkFrame(sb, height=1, fg_color=BORDER).grid(
             row=9, column=0, padx=14, pady=8, sticky="ew")
 
-        # Language
         lang_f = ctk.CTkFrame(sb, fg_color="transparent")
         lang_f.grid(row=10, column=0, padx=14, pady=4, sticky="ew")
         ctk.CTkLabel(lang_f, text="Язык / Language", font=("Segoe UI", 10),
@@ -146,7 +142,6 @@ class MultiCheckerApp(ctk.CTk):
         if i18n.current_lang == "ru":
             self.lang_sw.select()
 
-        # Theme toggle (dark/light)
         theme_f = ctk.CTkFrame(sb, fg_color="transparent")
         theme_f.grid(row=10, column=0, padx=14, pady=(40, 4), sticky="ew")
         ctk.CTkLabel(theme_f, text="Theme", font=("Segoe UI", 10),
@@ -158,7 +153,6 @@ class MultiCheckerApp(ctk.CTk):
         )
         self.theme_sw.pack(anchor="w", padx=4, pady=(4, 0))
 
-        # Status dot
         self._sb_status = ctk.CTkLabel(
             sb, text="● Готов", font=("Segoe UI", 11), text_color=GREEN)
         self._sb_status.grid(row=11, column=0, padx=18, pady=(8, 18), sticky="sw")
@@ -205,7 +199,6 @@ class MultiCheckerApp(ctk.CTk):
         w = {}
         icon, label_key = TAB_META[tab_name]
 
-        # ── Top bar ──────────────────────────────────────────────────────────
         bar = ctk.CTkFrame(frame, fg_color=CARD, corner_radius=0, height=58)
         bar.grid(row=0, column=0, sticky="ew")
         bar.grid_propagate(False)
@@ -221,12 +214,10 @@ class MultiCheckerApp(ctk.CTk):
                                   corner_radius=10, padx=12, pady=3)
         w["pill"].grid(row=0, column=2, padx=20, sticky="e")
 
-        # ── Scrollable body ──────────────────────────────────────────────────
         body = ctk.CTkScrollableFrame(frame, fg_color=BG, corner_radius=0)
         body.grid(row=1, column=0, sticky="nsew")
         body.grid_columnconfigure(0, weight=1)
 
-        # ── Input ────────────────────────────────────────────────────────────
         ic = self._card(body, "Входные данные")
         ic.grid(row=0, column=0, padx=16, pady=(14, 6), sticky="ew")
         ic.grid_columnconfigure(0, weight=1)
@@ -237,7 +228,6 @@ class MultiCheckerApp(ctk.CTk):
         )
         w["input"].grid(row=1, column=0, padx=12, pady=(2, 12), sticky="ew")
 
-        # ── Settings row ─────────────────────────────────────────────────────
         sc = self._card(body, "Настройки")
         sc.grid(row=1, column=0, padx=16, pady=6, sticky="ew")
         sc.grid_columnconfigure(0, weight=1)
@@ -276,7 +266,6 @@ class MultiCheckerApp(ctk.CTk):
                                    placeholder_text="http://ip:port  или  proxy.txt")
         w["proxy"].grid(row=0, column=6, sticky="ew")
 
-        # ── Telegram notification settings (Feature 7) ───────────────────────
         tg_row = ctk.CTkFrame(sc, fg_color="transparent")
         tg_row.grid(row=2, column=0, padx=12, pady=(2, 12), sticky="ew")
         tg_row.grid_columnconfigure(1, weight=1)
@@ -304,7 +293,6 @@ class MultiCheckerApp(ctk.CTk):
         )
         w["tg_enabled"].grid(row=0, column=4, sticky="w")
 
-        # ── Action buttons ───────────────────────────────────────────────────
         bf = ctk.CTkFrame(body, fg_color="transparent")
         bf.grid(row=2, column=0, padx=16, pady=6, sticky="ew")
 
@@ -322,7 +310,6 @@ class MultiCheckerApp(ctk.CTk):
         btn(bf, "\U0001f4cb",  CARD,   HOVER, lambda: self._paste_clipboard(w), 42).pack(side="left", padx=(0,6))
         btn(bf, "⊘  Дубли",   "#6e40c9", "#5a32a3", lambda: self.remove_duplicates(w), 110).pack(side="left", padx=(0,6))
 
-        # Export group
         eg = ctk.CTkFrame(bf, fg_color=CARD, corner_radius=8)
         eg.pack(side="left", padx=(8, 0))
         ctk.CTkLabel(eg, text="Экспорт:", font=("Segoe UI", 11),
@@ -334,7 +321,6 @@ class MultiCheckerApp(ctk.CTk):
                            command=lambda f=fmt: self.export_results(w, f)
                            ).pack(side="left", padx=2, pady=4)
 
-        # Export with balance button
         ctk.CTkButton(eg, text="$", fg_color="transparent",
                        hover_color=HOVER, font=("Segoe UI", 11, "bold"),
                        text_color=GREEN, corner_radius=6, height=30, width=36,
@@ -344,7 +330,6 @@ class MultiCheckerApp(ctk.CTk):
         btn(bf, "◈  Стат", PURPLE, "#a371f7",
             lambda: self.show_stats(tab_name), 110).pack(side="right")
 
-        # ── Counter cards ────────────────────────────────────────────────────
         cr = ctk.CTkFrame(body, fg_color="transparent")
         cr.grid(row=3, column=0, padx=16, pady=6, sticky="ew")
         cr.grid_columnconfigure((0,1,2,3), weight=1)
@@ -366,7 +351,6 @@ class MultiCheckerApp(ctk.CTk):
         w["cnt_errors"]  = counter(cr, 2, "Ошибок",     YELLOW)
         w["cnt_total"]   = counter(cr, 3, "Всего",      ACCENT)
 
-        # ── Progress ─────────────────────────────────────────────────────────
         pc = ctk.CTkFrame(body, fg_color=CARD, corner_radius=10)
         pc.grid(row=4, column=0, padx=16, pady=6, sticky="ew")
         pc.grid_columnconfigure(0, weight=1)
@@ -375,7 +359,6 @@ class MultiCheckerApp(ctk.CTk):
         w["progress"].grid(row=0, column=0, padx=14, pady=10, sticky="ew")
         w["progress"].set(0)
 
-        # ── Filter bar ───────────────────────────────────────────────────────
         ff = ctk.CTkFrame(body, fg_color="transparent")
         ff.grid(row=5, column=0, padx=16, pady=(4, 0), sticky="ew")
         w["_log_lines"] = []
@@ -394,7 +377,6 @@ class MultiCheckerApp(ctk.CTk):
         w["filter_seg"].set(i18n.t("filter_all"))
         w["filter_seg"].pack(side="left")
 
-        # ── Log output ───────────────────────────────────────────────────────
         lc = ctk.CTkFrame(body, fg_color=CARD, corner_radius=10)
         lc.grid(row=6, column=0, padx=16, pady=(6, 18), sticky="ew")
         lc.grid_columnconfigure(0, weight=1)
@@ -409,7 +391,6 @@ class MultiCheckerApp(ctk.CTk):
         w["output"].tag_config("error",   foreground=YELLOW)
         w["output"].tag_config("system",  foreground=ACCENT)
 
-        # compat alias
         w["status"] = w["pill"]
         return w
 
@@ -430,21 +411,19 @@ class MultiCheckerApp(ctk.CTk):
         self._refresh_text()
 
     def _toggle_theme(self):
-        """Toggle between dark and light appearance mode."""
         if self.theme_sw.get():
             ctk.set_appearance_mode("light")
         else:
             ctk.set_appearance_mode("dark")
 
     # ═══════════════════════════════════════════════════════════════════════════
-    #  CONFIG PERSISTENCE (Feature 7)
+    #  CONFIG PERSISTENCE
     # ═══════════════════════════════════════════════════════════════════════════
 
     def _get_config_path(self):
         return os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
 
     def _load_config(self):
-        """Load settings from config.json in app directory."""
         config_path = self._get_config_path()
         if not os.path.isfile(config_path):
             return
@@ -454,7 +433,6 @@ class MultiCheckerApp(ctk.CTk):
         except Exception:
             return
 
-        # Apply theme
         theme = cfg.get("theme", "dark")
         ctk.set_appearance_mode(theme)
         if theme == "light":
@@ -462,7 +440,6 @@ class MultiCheckerApp(ctk.CTk):
         else:
             self.theme_sw.deselect()
 
-        # Apply language
         lang = cfg.get("lang", "ru")
         if lang != i18n.current_lang:
             i18n.set_lang(lang)
@@ -472,25 +449,20 @@ class MultiCheckerApp(ctk.CTk):
         else:
             self.lang_sw.deselect()
 
-        # Apply settings to all tabs
         for tab_name, w in self.tab_widgets.items():
-            # Threads
             threads = cfg.get("threads", 100)
             w["threads"].set(threads)
             w["tval"].configure(text=str(int(threads)))
 
-            # Timeout
             timeout = cfg.get("timeout", "10")
             w["timeout"].delete(0, "end")
             w["timeout"].insert(0, str(timeout))
 
-            # Proxy
             proxy = cfg.get("proxy", "")
             if proxy:
                 w["proxy"].delete(0, "end")
                 w["proxy"].insert(0, proxy)
 
-            # Telegram settings
             tg_token = cfg.get("tg_token", "")
             tg_chat_id = cfg.get("tg_chat_id", "")
             if tg_token:
@@ -501,9 +473,7 @@ class MultiCheckerApp(ctk.CTk):
                 w["tg_chat_id"].insert(0, tg_chat_id)
 
     def _save_config(self):
-        """Save current settings to config.json."""
         config_path = self._get_config_path()
-        # Get settings from first available tab
         first_tab = list(self.tab_widgets.keys())[0]
         w = self.tab_widgets[first_tab]
 
@@ -524,7 +494,6 @@ class MultiCheckerApp(ctk.CTk):
             pass
 
     def _on_close(self):
-        """Save config and destroy the application."""
         self._save_config()
         self.destroy()
 
@@ -572,7 +541,6 @@ class MultiCheckerApp(ctk.CTk):
             self.log(w, f"Import error: {e}")
 
     def _paste_clipboard(self, w):
-        """Paste text from clipboard into the input textbox."""
         try:
             text = self.clipboard_get()
             if text.strip():
@@ -612,28 +580,23 @@ class MultiCheckerApp(ctk.CTk):
             self.log(w, f"Export error: {e}")
 
     def export_balance_only(self, w):
-        """Export only results that have a non-zero balance (crypto wallets with funds)."""
         balance_results = []
         for r in self.all_results:
             if not r:
                 continue
             info = r.get("info", {})
-            # Check for any balance field > 0
             has_balance = False
             for key, val in info.items():
                 if key.startswith("balance_") and isinstance(val, (int, float)) and val > 0:
                     has_balance = True
                     break
-            # Also check nested balances (seed checker)
             if not has_balance and "balances" in info:
                 for coin_data in info["balances"].values():
                     if isinstance(coin_data, dict) and coin_data.get("balance", 0) > 0:
                         has_balance = True
                         break
-            # Also check total_usd
             if not has_balance and info.get("total_usd", 0) > 0:
                 has_balance = True
-            # Also check chains (privkey multichain)
             if not has_balance and "chains" in info:
                 for chain_data in info["chains"].values():
                     if isinstance(chain_data, dict) and chain_data.get("balance", 0) > 0:
@@ -707,17 +670,13 @@ class MultiCheckerApp(ctk.CTk):
             return default
 
     def _estimate_usd(self, result):
-        """Estimate USD value from a result dict for sorting (Feature 1)."""
         if not result:
             return 0.0
         info = result.get("info", {})
-        # Direct total_usd field
         total = info.get("total_usd", 0)
         if total:
             return float(total)
-        # Token USD
         total += info.get("token_usd", 0)
-        # Try balance fields with approximate prices
         _approx_prices = {
             "balance_btc": 60000, "balance_eth": 3000, "balance_sol": 150,
             "balance_bnb": 600, "balance_trx": 0.12, "balance_ltc": 80,
@@ -728,14 +687,12 @@ class MultiCheckerApp(ctk.CTk):
             val = info.get(key, 0)
             if val:
                 total += float(val) * price
-        # Check nested balances (seed checker)
         if "balances" in info:
             for coin_data in info["balances"].values():
                 if isinstance(coin_data, dict):
                     bal = coin_data.get("balance", 0)
                     if bal:
-                        total += float(bal)  # rough
-        # Check chains (privkey multichain)
+                        total += float(bal)
         if "chains" in info:
             for chain_data in info["chains"].values():
                 if isinstance(chain_data, dict):
@@ -745,7 +702,6 @@ class MultiCheckerApp(ctk.CTk):
         return total
 
     def _notify_telegram(self, w, msg):
-        """Send Telegram notification (Feature 7)."""
         token = w.get("tg_token")
         chat_id = w.get("tg_chat_id")
         if not token or not chat_id:
@@ -754,7 +710,6 @@ class MultiCheckerApp(ctk.CTk):
         chat_id_val = chat_id.get().strip()
         if not token_val or not chat_id_val:
             return
-        # Check if enabled
         enabled = w.get("tg_enabled")
         if enabled and not enabled.get():
             return
@@ -770,58 +725,38 @@ class MultiCheckerApp(ctk.CTk):
             self.after(0, lambda: self.log(w, i18n.t("tg_error").format(str(e)[:60])))
 
     def _normalize(self, line, tab):
-        """
-        Supports formats:
-          email:pass
-          login:pass
-          url:login:pass
-          url|login|pass
-          https://site.com:login:pass
-          https://site.com/path:login:pass
-        """
         raw = line.strip()
         if not raw:
             return ""
         try:
-            # Crypto fast-path: plain wallet address
             if tab == "Crypto" and ":" not in raw and "/" not in raw and "|" not in raw:
                 return raw
 
-            # Normalise separator: replace | with :
             cleaned = raw.replace("|", ":")
 
-            # ── Email: always extract email pattern first ──────────────────
             if tab == "Email":
                 m = re.search(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}", cleaned)
                 if m:
                     return m.group(0)
 
-            # ── Parse url:login:pass or url|login|pass ─────────────────────
-            # Strip the URL part (http://... or https://...) to get remaining tokens
             url_match = re.match(r"(https?://[^\s:]+)", cleaned)
             if url_match:
                 url_part = url_match.group(1)
-                rest = cleaned[len(url_part):]          # ":login:pass" or ""
+                rest = cleaned[len(url_part):]
                 rest_tokens = [t.strip() for t in rest.split(":") if t.strip()]
-                # rest_tokens = [login, pass] typically
                 if tab == "Email":
-                    # look for email in rest tokens
                     for t in rest_tokens:
                         if "@" in t and "." in t.split("@")[-1]:
                             return t
                     return ""
                 if tab in {"Social", "Games", "AI"}:
-                    # login is first rest token (username)
                     if rest_tokens:
                         return rest_tokens[0]
-                    # fallback: last path segment of URL
                     bits = [p for p in urlparse(url_part).path.split("/") if p]
                     return bits[-1] if bits else ""
-                # For other tabs just return first rest token
                 if rest_tokens:
                     return rest_tokens[0]
 
-            # ── Plain colon-separated: login:pass or email:pass ───────────
             tokens = [t.strip() for t in cleaned.split(":") if t.strip()
                       and t.strip() not in {"http", "https", "//"}]
 
@@ -832,7 +767,6 @@ class MultiCheckerApp(ctk.CTk):
                 return ""
 
             if tab in {"Social", "Games", "AI"}:
-                # Prefer token without dots (username, not domain)
                 cands = [t for t in tokens
                          if not t.lower().startswith("http") and "." not in t]
                 if cands:
@@ -977,6 +911,7 @@ class MultiCheckerApp(ctk.CTk):
         cats = ["Email", "Social", "Crypto", "Games", "AI"]
         total = len(data) * len(cats) if tab_name == "All" else len(data)
         done  = [0]; valid = [0]; inv = [0]; err = [0]
+        done_proxy_idx = [0]  # Независимый потокобезопасный счетчик ротации прокси
         upd   = max(1, total // 2000)
 
         proxies = []
@@ -998,7 +933,10 @@ class MultiCheckerApp(ctk.CTk):
                 async with sem:
                     if not self.is_running:
                         return None
-                    p   = proxies[done[0] % len(proxies)] if proxies else None
+                    # Извлечение прокси и инкремент ДО вызова await исключает гонку потоков
+                    p = proxies[done_proxy_idx[0] % len(proxies)] if proxies else None
+                    done_proxy_idx[0] += 1
+                    
                     cat_ = cat or tab_name
                     it   = item
                     if cat:
@@ -1078,14 +1016,11 @@ class MultiCheckerApp(ctk.CTk):
         self.results     = [r for r in self.all_results if r.get("exists")]
         del results
 
-        # Feature 1 — Auto-sort results by estimated USD value descending
         self.results.sort(key=lambda r: self._estimate_usd(r), reverse=True)
 
-        # Feature 7 — Telegram notifications for high-value results
         for r in self.results:
             est = self._estimate_usd(r)
             rtype = r.get("type", "")
-            # Seed/privkey with ANY balance → notify; wallets only if > $100
             notify_threshold = 0 if rtype in ("seed", "privkey_hex", "privkey_wif", "exchange_api") else 100
             if est > notify_threshold:
                 inp = r.get("input", "")[:30]
@@ -1102,7 +1037,6 @@ class MultiCheckerApp(ctk.CTk):
                     tg_msg = f"<b>💰 Balance found!</b>\n{inp}\n{msg_text[:200]}\nUSD: ~${est:,.2f}"
                 self._notify_telegram(w, tg_msg)
 
-        # Feature 6 — Summary line: accounts with balance and total portfolio
         total_portfolio = sum(self._estimate_usd(r) for r in self.results)
         if self.results:
             summary = i18n.t("summary_line").format(len(self.results), f"{total_portfolio:,.2f}")
@@ -1188,13 +1122,34 @@ class MultiCheckerApp(ctk.CTk):
         ft = mapping.get(value, "all")
         w["_filter"] = ft
         w["output"].delete("1.0", "end")
+        
+        # Сбор строк, подходящих под критерий фильтрации
+        lines_to_show = []
         for tag, line in w.get("_log_lines", []):
             if ft == "all" or tag == ft or tag == "system":
-                self._log_safe(w, line, tag)
+                lines_to_show.append((line, tag))
             elif ft == "balance" and tag == "valid" and ("Balance:" in line or "balance" in line.lower()):
-                # Show only lines that mention a non-zero balance
                 if "(empty)" not in line:
-                    self._log_safe(w, line, tag)
+                    lines_to_show.append((line, tag))
+
+        # Асинхронный батчинг для предотвращения GUI Freeze (по 200 строк в UI поток)
+        def insert_batch(index=0):
+            if w.get("_filter") != ft:
+                return  # Фильтр переключили повторно во время отрисовки прошлой пачки
+            batch = lines_to_show[index:index+200]
+            if batch:
+                for line, tag in batch:
+                    try:
+                        w["output"].insert("end", f"{line}\n", tag)
+                    except Exception:
+                        pass
+                try:
+                    w["output"].see("end")
+                except Exception:
+                    pass
+                self.after(10, lambda: insert_batch(index + 200))
+
+        insert_batch(0)
 
     def stop_check(self):
         self.is_running = False
@@ -1243,7 +1198,6 @@ class MultiCheckerApp(ctk.CTk):
                      font=("Segoe UI", 18, "bold"), text_color=TEXT
                      ).pack(pady=(20, 12))
 
-        # Summary cards
         cf = ctk.CTkFrame(win, fg_color="transparent")
         cf.pack(padx=20, fill="x")
         cf.grid_columnconfigure((0,1,2), weight=1)
@@ -1259,7 +1213,6 @@ class MultiCheckerApp(ctk.CTk):
             pct = f"{cnt*100//total}%" if total else "0%"
             ctk.CTkLabel(c, text=pct, font=("Segoe UI",11), text_color=MUTED).pack(pady=(0,10))
 
-        # Bar chart
         bc = ctk.CTkFrame(win, fg_color=CARD, corner_radius=10)
         bc.pack(padx=20, pady=12, fill="x")
         cv = Canvas(bc, width=480, height=110, bg=CARD, highlightthickness=0)
@@ -1278,7 +1231,6 @@ class MultiCheckerApp(ctk.CTk):
             cv.create_text(460, y+11, text=pct, anchor="e",
                            fill=clr, font=("Segoe UI",11,"bold"))
 
-        # Platform list
         ctk.CTkLabel(win, text=i18n.t("stats_by_platform"),
                      font=("Segoe UI",14,"bold"), text_color=TEXT
                      ).pack(padx=20, anchor="w")
@@ -1300,8 +1252,3 @@ class MultiCheckerApp(ctk.CTk):
 if __name__ == "__main__":
     app = MultiCheckerApp()
     app.mainloop()
-
-
-
-
-
