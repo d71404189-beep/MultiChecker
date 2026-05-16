@@ -23,8 +23,8 @@ except ImportError:
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-# Установлена актуальная версия v1.0.62
-APP_VERSION = "1.0.62"
+# Установлена актуальная версия v1.0.63
+APP_VERSION = "1.0.63"
 
 if platform.system() == "Windows":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -514,6 +514,13 @@ class MultiCheckerApp(ctk.CTk):
                        text_color=ORANGE, corner_radius=6, height=30, width=60,
                        command=lambda: self.export_by_type(w, "privkey")
                        ).pack(side="left", padx=2, pady=4)
+        
+        # Кнопка экспорта аккаунтов с возможностью авторизации
+        ctk.CTkButton(eg, text="🔐 AUTH", fg_color="transparent",
+                       hover_color=HOVER, font=("Segoe UI", 11, "bold"),
+                       text_color="#3fb950", corner_radius=6, height=30, width=64,
+                       command=lambda: self.export_auth_accounts(w)
+                       ).pack(side="left", padx=2, pady=4)
 
         btn(bf, "◈  Стат", PURPLE, "#a371f7",
             lambda: self.show_stats(tab_name), 110).pack(side="right")
@@ -971,6 +978,75 @@ class MultiCheckerApp(ctk.CTk):
             self.log(w, i18n.t("exported").format(fn))
         except Exception as e:
             self.log(w, f"Export error: {e}")
+    
+    def export_auth_accounts(self, w):
+        """Экспорт аккаунтов с возможностью авторизации (seed/privkey + баланс)"""
+        from checkers.auth_export import ResultsAnalyzer
+        
+        # Анализируем результаты
+        analyzer = ResultsAnalyzer()
+        exporter = analyzer.analyze_results(self.all_results)
+        
+        stats = exporter.get_statistics()
+        total_auth = stats["total_accounts"]
+        with_balance = stats["with_balance"]
+        total_balance = stats["total_balance_usd"]
+        
+        if total_auth == 0:
+            self.log(w, "❌ Аккаунты с возможностью авторизации не найдены.")
+            self.log(w, "   Нужны: seed фраза, приватный ключ, email:password или API ключи")
+            return
+        
+        # Показываем статистику
+        self.log(w, f"🔐 Найдено аккаунтов с авторизацией: {total_auth}")
+        self.log(w, f"   💰 С балансом: {with_balance}")
+        self.log(w, f"   💵 Общий баланс: ${total_balance:,.2f}")
+        
+        # Экспортируем в разные форматы
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        try:
+            # 1. Детальный TXT (все аккаунты)
+            fn_detailed = f"auth_accounts_detailed_{ts}.txt"
+            exporter.export_to_txt(fn_detailed, min_balance=0.0, format_type="detailed")
+            self.log(w, f"✅ Детальный отчет: {fn_detailed}")
+            
+            # 2. Компактный TXT (только с балансом)
+            if with_balance > 0:
+                fn_compact = f"auth_accounts_balance_{ts}.txt"
+                exporter.export_to_txt(fn_compact, min_balance=0.01, format_type="compact")
+                self.log(w, f"✅ С балансом: {fn_compact}")
+            
+            # 3. Только credentials (для быстрого импорта)
+            fn_creds = f"auth_credentials_only_{ts}.txt"
+            exporter.export_to_txt(fn_creds, min_balance=0.0, format_type="credentials_only")
+            self.log(w, f"✅ Только credentials: {fn_creds}")
+            
+            # 4. JSON (полные данные)
+            fn_json = f"auth_accounts_{ts}.json"
+            exporter.export_to_json(fn_json, min_balance=0.0, include_credentials=True)
+            self.log(w, f"✅ JSON: {fn_json}")
+            
+            # 5. CSV (для Excel)
+            fn_csv = f"auth_accounts_{ts}.csv"
+            exporter.export_to_csv(fn_csv, min_balance=0.0)
+            self.log(w, f"✅ CSV: {fn_csv}")
+            
+            # Показываем отчет
+            self.log(w, "\n" + "="*50)
+            self.log(w, "📊 СТАТИСТИКА ПО ТИПАМ АВТОРИЗАЦИИ:")
+            
+            by_type = stats.get("by_auth_type", {})
+            for auth_type, data in sorted(by_type.items(), key=lambda x: x[1]["total_balance"], reverse=True):
+                count = data["count"]
+                balance = data["total_balance"]
+                self.log(w, f"   • {auth_type}: {count} шт. (${balance:,.2f})")
+            
+            self.log(w, "="*50)
+            self.log(w, f"✅ Экспорт завершен! Создано 5 файлов.")
+            
+        except Exception as e:
+            self.log(w, f"❌ Ошибка экспорта: {e}")
 
     def remove_duplicates(self, w):
         tab = self._tab_of(w)
