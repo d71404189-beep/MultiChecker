@@ -254,10 +254,11 @@ class LogColorizer:
     }
     
     # Теги для CustomTkinter textbox
+    # Примечание: font не поддерживается в CustomTkinter из-за масштабирования
     TAG_CONFIGS = {
-        "balance_found": {"foreground": COLORS["balance_found"], "font": ("Consolas", 12, "bold")},
-        "transfer_detected": {"foreground": COLORS["transfer_detected"], "font": ("Consolas", 12, "bold")},
-        "whale": {"foreground": COLORS["whale"], "font": ("Consolas", 12, "bold")},
+        "balance_found": {"foreground": COLORS["balance_found"]},
+        "transfer_detected": {"foreground": COLORS["transfer_detected"]},
+        "whale": {"foreground": COLORS["whale"]},
         "error": {"foreground": COLORS["error"]},
         "info": {"foreground": COLORS["info"]},
         "success": {"foreground": COLORS["success"]},
