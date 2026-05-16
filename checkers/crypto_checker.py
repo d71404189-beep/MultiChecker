@@ -189,12 +189,82 @@ class CryptoChecker(BaseChecker):
             session = aiohttp.ClientSession()
         try:
             result = await self._dispatch(data.strip(), timeout, proxy, session)
+            
+            # Обновляем статистику сессии
+            self._update_session_stats(result)
+            
         except Exception as e:
             result["info"]["error"] = str(e)
         finally:
             if own_session:
                 await session.close()
         return result
+    
+    def _update_session_stats(self, result: dict):
+        """Обновить статистику сессии после проверки"""
+        
+        # Инициализируем start_time если это первая проверка
+        if self.session_stats["start_time"] is None:
+            self.session_stats["start_time"] = time.time()
+        
+        # Увеличиваем счетчик проверенных
+        self.session_stats["total_checked"] += 1
+        
+        # Проверяем валидность
+        if result.get("exists") or not result.get("info", {}).get("error"):
+            self.session_stats["total_valid"] += 1
+        
+        # Получаем баланс
+        info = result.get("info", {})
+        balance_usd = 0.0
+        
+        # Пытаемся получить баланс из разных полей
+        if "total_usd" in info:
+            balance_usd = float(info.get("total_usd", 0))
+        elif "balance_usd" in info:
+            balance_usd = float(info.get("balance_usd", 0))
+        elif "balance" in info:
+            # Если есть balance но нет USD, пытаемся конвертировать
+            balance = float(info.get("balance", 0))
+            wallet_type = result.get("wallet_type", "")
+            
+            # Примерные цены для конвертации
+            price_map = {
+                "bitcoin": 45000,
+                "ethereum": 2500,
+                "bnb": 300,
+                "solana": 100,
+                "polygon": 0.8,
+                "tron": 0.1,
+            }
+            
+            price = price_map.get(wallet_type, 0)
+            if price > 0:
+                balance_usd = balance * price
+        
+        # Если есть баланс
+        if balance_usd > 0:
+            self.session_stats["total_with_balance"] += 1
+            self.session_stats["total_usd"] += balance_usd
+            
+            # Обновляем лучшую находку
+            if balance_usd > self.session_stats["best_find"]["amount"]:
+                self.session_stats["best_find"] = {
+                    "address": result.get("input", "")[:50],
+                    "amount": balance_usd,
+                    "chain": result.get("wallet_type", result.get("type", "unknown"))
+                }
+        
+        # Статистика по сетям
+        chain = result.get("wallet_type") or result.get("type") or "unknown"
+        if chain not in self.session_stats["by_chain"]:
+            self.session_stats["by_chain"][chain] = {
+                "count": 0,
+                "total_usd": 0.0
+            }
+        
+        self.session_stats["by_chain"][chain]["count"] += 1
+        self.session_stats["by_chain"][chain]["total_usd"] += balance_usd
 
     async def batch_check_seeds(self, seed_list: list, timeout: int = 10, proxy: str = None) -> dict:
         """
