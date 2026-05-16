@@ -280,33 +280,42 @@ class LogColorizer:
         
         message_lower = message.lower()
         
-        # Проверяем на перевод (самый важный!)
-        transfer_keywords = [
-            "transfer", "перевод", "sent", "отправлено",
-            "transaction", "транзакция", "tx", "moved"
-        ]
-        if any(keyword in message_lower for keyword in transfer_keywords):
-            return "transfer_detected"
-        
-        # Проверяем на whale
+        # Проверяем на whale (высокий приоритет!)
         whale_keywords = ["whale", "кит", "🐋", "high balance", "большой баланс"]
         if any(keyword in message_lower for keyword in whale_keywords):
             return "whale"
         
-        # Проверяем на баланс
+        # Проверяем на баланс (зеленый цвет)
         balance_keywords = ["balance", "баланс", "found", "найден", "💰", "~$"]
         if any(keyword in message_lower for keyword in balance_keywords):
             # Проверяем что это не нулевой баланс
             if "0.00" not in message and "empty" not in message_lower:
                 return "balance_found"
         
+        # Проверяем на РЕАЛЬНЫЙ перевод (красный только для транзакций с деталями!)
+        # Исключаем ложные срабатывания на "Exchange:", "Transfer:", etc.
+        transfer_indicators = [
+            ("transfer", ["hash", "tx", "0x", "amount", "from", "to"]),  # Должен быть хеш или детали
+            ("перевод", ["хеш", "сумма", "от", "кому"]),
+            ("sent", ["hash", "tx", "0x", "amount"]),
+            ("отправлено", ["хеш", "сумма"]),
+            ("transaction", ["hash", "0x", "confirmed", "pending"]),
+            ("транзакция", ["хеш", "подтверждена", "ожидание"]),
+        ]
+        
+        for keyword, required_details in transfer_indicators:
+            if keyword in message_lower:
+                # Проверяем что есть хотя бы одна деталь транзакции
+                if any(detail in message_lower for detail in required_details):
+                    return "transfer_detected"
+        
         # Проверяем на ошибку
-        error_keywords = ["error", "ошибка", "failed", "провалено", "❌"]
+        error_keywords = ["error", "ошибка", "failed", "провалено", "❌", "timeout"]
         if any(keyword in message_lower for keyword in error_keywords):
             return "error"
         
-        # Проверяем на успех
-        success_keywords = ["success", "успех", "✅", "completed", "завершено"]
+        # Проверяем на успех (зеленый для успешных операций)
+        success_keywords = ["success", "успех", "✅", "completed", "завершено", "valid", "валидный"]
         if any(keyword in message_lower for keyword in success_keywords):
             return "success"
         
@@ -315,7 +324,7 @@ class LogColorizer:
         if any(keyword in message_lower for keyword in warning_keywords):
             return "warning"
         
-        # По умолчанию - info
+        # По умолчанию - info (синий цвет для обычной информации)
         return "info"
     
     @staticmethod
