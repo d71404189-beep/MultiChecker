@@ -23,8 +23,8 @@ except ImportError:
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-# Установлена актуальная версия v1.0.68
-APP_VERSION = "1.0.68"
+# Установлена актуальная версия v1.0.69
+APP_VERSION = "1.0.69"
 
 if platform.system() == "Windows":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -36,6 +36,7 @@ from checkers.game_checker import GameChecker
 from checkers.ai_checker import AIChecker
 from checkers.balance_formatter import BalanceFormatter, LogColorizer, BalanceHighlighter
 from checkers.dump_parser import DumpParser
+from checkers.proxy_manager import ProxyManager, load_proxies, get_next_proxy, get_proxy_count, get_stats as get_proxy_stats, reset as reset_proxies
 import i18n
 
 ctk.set_appearance_mode("dark")
@@ -355,9 +356,9 @@ class MultiCheckerApp(ctk.CTk):
         w["proxy"] = ctk.CTkEntry(sr, font=("Segoe UI", 12), fg_color=CARD2,
                                    border_color=BORDER, text_color=TEXT,
                                    corner_radius=8,
-                                   placeholder_text="http://ip:port, socks4://ip:port, socks5://ip:port")
+                                   placeholder_text="socks5://ip:port или proxy.txt")
         w["proxy"].grid(row=0, column=6, sticky="ew")
-        create_tooltip(w["proxy"], "Поддержка: HTTP, HTTPS, SOCKS4, SOCKS5\nФорматы: http://ip:port, socks4://user:pass@ip:port")
+        create_tooltip(w["proxy"], "Поддержка: HTTP, HTTPS, SOCKS4, SOCKS5\nОдин прокси: socks5://user:pass@ip:port\nИз файла: proxy.txt (автоматическая ротация)")
 
         tg_row = ctk.CTkFrame(sc, fg_color="transparent")
         tg_row.grid(row=2, column=0, padx=12, pady=(2, 12), sticky="ew")
@@ -1566,19 +1567,20 @@ class MultiCheckerApp(ctk.CTk):
         cats = ["Email", "Social", "Crypto", "Games", "AI"]
         total = len(data) * len(cats) if tab_name == "All" else len(data)
         done  = [0]; valid = [0]; inv = [0]; err = [0]
-        done_proxy_idx = [0]
         upd   = max(1, total // 2000)
 
-        proxies = []
+        # Загружаем прокси через ProxyManager
+        proxy_count = 0
         if proxy:
-            if os.path.isfile(proxy):
-                try:
-                    with open(proxy) as f:
-                        proxies = [l.strip() for l in f if l.strip()]
-                except Exception:
-                    pass
+            reset_proxies()  # Сбрасываем предыдущие прокси
+            if load_proxies(proxy):
+                proxy_count = get_proxy_count()
+                proxy_stats = get_proxy_stats()
+                self.after(0, lambda: self.log(w, f"✅ Загружено {proxy_count} прокси"))
+                if proxy_stats['invalid_proxies'] > 0:
+                    self.after(0, lambda: self.log(w, f"⚠️ Невалидных прокси: {proxy_stats['invalid_proxies']}"))
             else:
-                proxies = [proxy]
+                self.after(0, lambda: self.log(w, f"❌ Не удалось загрузить прокси из: {proxy}"))
 
         conn = aiohttp.TCPConnector(limit=threads*2,
                                     limit_per_host=min(threads,50),
@@ -1588,8 +1590,9 @@ class MultiCheckerApp(ctk.CTk):
                 async with sem:
                     if not self.is_running:
                         return None
-                    p = proxies[done_proxy_idx[0] % len(proxies)] if proxies else None
-                    done_proxy_idx[0] += 1
+                    
+                    # Получаем следующий прокси из менеджера (с ротацией)
+                    p = get_next_proxy() if proxy_count > 0 else None
                     
                     cat_ = cat or tab_name
                     it   = item
