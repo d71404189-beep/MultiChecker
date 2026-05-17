@@ -1,0 +1,34 @@
+================================================================================
+AI ACCOUNTS WITH SUBSCRIPTIONS
+Exported: 2026-05-17 19:15:05
+Total accounts: 2
+================================================================================
+
+[1] CHATGPT
+    Account: test1@example.com
+    Subscription: ChatGPT Plus ($20.0/month)
+    Tier: plus
+    Features: GPT-4 access, Faster response
+    Auth: Email + Password
+    How to login: Login via chat.openai.com
+
+--------------------------------------------------------------------------------
+
+[2] CLAUDE
+    Account: test2@example.com
+    Subscription: Claude Pro ($20.0/month)
+    Tier: pro
+    Features: 5x more usage
+    Auth: Email + Password
+    How to login: Login via claude.ai
+
+--------------------------------------------------------------------------------
+
+================================================================================
+STATISTICS
+================================================================================
+chatgpt: 1 accounts, $20.00/month
+claude: 1 accounts, $20.00/month
+
+Total monthly cost: $40.00
+Total yearly cost: $480.00
