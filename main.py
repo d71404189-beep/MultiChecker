@@ -23,8 +23,8 @@ except ImportError:
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-# Установлена актуальная версия v1.0.78
-APP_VERSION = "1.0.78"
+# Установлена актуальная версия v1.0.79
+APP_VERSION = "1.0.79"
 
 if platform.system() == "Windows":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -2769,56 +2769,312 @@ class MultiCheckerApp(ctk.CTk):
                     "address": address,
                     "balance_usd": total_usd,
                     "chains": list(chains.keys()) if chains else [],
-                    "type": r.get("type")
+                    "type": r.get("type"),
+                    "chains_data": chains
                 })
         
         if not privkeys:
             self.log(w, "❌ Приватные ключи не найдены")
             return
         
-        # Сохраняем в файл
+        # Создаем окно выбора формата экспорта
+        self._show_export_keys_dialog(w, privkeys)
+    
+    def _show_export_keys_dialog(self, w, privkeys):
+        """Показать диалог выбора формата экспорта ключей"""
+        
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("🔑 Экспорт приватных ключей")
+        dialog.geometry("600x500")
+        dialog.configure(fg_color=BG)
+        dialog.attributes("-topmost", True)
+        
+        # Заголовок
+        header = ctk.CTkFrame(dialog, fg_color=CARD, corner_radius=10)
+        header.pack(fill="x", padx=20, pady=(20, 10))
+        
+        ctk.CTkLabel(header, text="🔑 Экспорт приватных ключей",
+                     font=("Segoe UI", 18, "bold"), text_color=TEXT
+                     ).pack(pady=(15, 5))
+        
+        with_balance = [k for k in privkeys if k["balance_usd"] > 0]
+        without_balance = [k for k in privkeys if k["balance_usd"] == 0]
+        
+        stats_text = f"Всего: {len(privkeys)} | С балансом: {len(with_balance)} | Без баланса: {len(without_balance)}"
+        ctk.CTkLabel(header, text=stats_text,
+                     font=("Segoe UI", 11), text_color=MUTED
+                     ).pack(pady=(0, 15))
+        
+        # Опции фильтрации
+        filter_frame = ctk.CTkFrame(dialog, fg_color=CARD, corner_radius=10)
+        filter_frame.pack(fill="x", padx=20, pady=10)
+        
+        ctk.CTkLabel(filter_frame, text="📊 Что экспортировать:",
+                     font=("Segoe UI", 12, "bold"), text_color=TEXT
+                     ).pack(anchor="w", padx=15, pady=(15, 5))
+        
+        export_filter = ctk.StringVar(value="all")
+        
+        ctk.CTkRadioButton(filter_frame, text=f"Все ключи ({len(privkeys)} шт)",
+                          variable=export_filter, value="all",
+                          font=("Segoe UI", 11), text_color=TEXT
+                          ).pack(anchor="w", padx=15, pady=3)
+        
+        ctk.CTkRadioButton(filter_frame, text=f"Только с балансом ({len(with_balance)} шт)",
+                          variable=export_filter, value="with_balance",
+                          font=("Segoe UI", 11), text_color=GREEN
+                          ).pack(anchor="w", padx=15, pady=3)
+        
+        ctk.CTkRadioButton(filter_frame, text=f"Только без баланса ({len(without_balance)} шт)",
+                          variable=export_filter, value="without_balance",
+                          font=("Segoe UI", 11), text_color=MUTED
+                          ).pack(anchor="w", padx=15, pady=(3, 15))
+        
+        # Форматы экспорта
+        format_frame = ctk.CTkFrame(dialog, fg_color=CARD, corner_radius=10)
+        format_frame.pack(fill="x", padx=20, pady=10)
+        
+        ctk.CTkLabel(format_frame, text="💾 Формат экспорта:",
+                     font=("Segoe UI", 12, "bold"), text_color=TEXT
+                     ).pack(anchor="w", padx=15, pady=(15, 10))
+        
+        # Кнопки форматов
+        formats_grid = ctk.CTkFrame(format_frame, fg_color="transparent")
+        formats_grid.pack(fill="x", padx=15, pady=(0, 15))
+        formats_grid.grid_columnconfigure((0,1,2,3), weight=1)
+        
+        def export_format(fmt):
+            filter_val = export_filter.get()
+            if filter_val == "with_balance":
+                keys_to_export = with_balance
+            elif filter_val == "without_balance":
+                keys_to_export = without_balance
+            else:
+                keys_to_export = privkeys
+            
+            self._export_keys_format(w, keys_to_export, fmt)
+            dialog.destroy()
+        
+        formats = [
+            ("📄 TXT", "txt", ACCENT),
+            ("📊 JSON", "json", CYAN),
+            ("📋 CSV", "csv", GREEN),
+            ("📗 EXCEL", "xlsx", PURPLE)
+        ]
+        
+        for i, (label, fmt, color) in enumerate(formats):
+            btn = ctk.CTkButton(formats_grid, text=label,
+                               fg_color=color, hover_color=color,
+                               font=("Segoe UI", 11, "bold"),
+                               corner_radius=8, height=40,
+                               command=lambda f=fmt: export_format(f))
+            btn.grid(row=0, column=i, padx=3, sticky="ew")
+        
+        # Специальные форматы
+        special_frame = ctk.CTkFrame(dialog, fg_color=CARD, corner_radius=10)
+        special_frame.pack(fill="x", padx=20, pady=10)
+        
+        ctk.CTkLabel(special_frame, text="🎯 Специальные форматы:",
+                     font=("Segoe UI", 12, "bold"), text_color=TEXT
+                     ).pack(anchor="w", padx=15, pady=(15, 10))
+        
+        special_grid = ctk.CTkFrame(special_frame, fg_color="transparent")
+        special_grid.pack(fill="x", padx=15, pady=(0, 15))
+        special_grid.grid_columnconfigure((0,1), weight=1)
+        
+        # MetaMask формат
+        btn_metamask = ctk.CTkButton(special_grid, text="🦊 MetaMask",
+                                     fg_color=ORANGE, hover_color=ORANGE2,
+                                     font=("Segoe UI", 11, "bold"),
+                                     corner_radius=8, height=40,
+                                     command=lambda: export_format("metamask"))
+        btn_metamask.grid(row=0, column=0, padx=3, sticky="ew")
+        
+        # Копировать в буфер
+        btn_clipboard = ctk.CTkButton(special_grid, text="📋 Буфер",
+                                      fg_color=PINK, hover_color=PINK2,
+                                      font=("Segoe UI", 11, "bold"),
+                                      corner_radius=8, height=40,
+                                      command=lambda: self._copy_keys_to_clipboard(privkeys, export_filter.get(), dialog))
+        btn_clipboard.grid(row=0, column=1, padx=3, sticky="ew")
+        
+        # Кнопка отмены
+        btn_cancel = ctk.CTkButton(dialog, text="❌ Отмена",
+                                   fg_color=RED, hover_color=RED2,
+                                   font=("Segoe UI", 12, "bold"),
+                                   corner_radius=8, height=40,
+                                   command=dialog.destroy)
+        btn_cancel.pack(fill="x", padx=20, pady=(10, 20))
+    
+    def _export_keys_format(self, w, keys, fmt):
+        """Экспорт ключей в выбранном формате"""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"privkeys_all_{timestamp}.txt"
         
         try:
-            with open(filename, "w", encoding="utf-8") as f:
-                f.write("="*70 + "\n")
-                f.write("ЭКСПОРТ ВСЕХ ПРИВАТНЫХ КЛЮЧЕЙ\n")
-                f.write(f"Дата: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-                f.write(f"Всего ключей: {len(privkeys)}\n")
-                f.write("="*70 + "\n\n")
-                
-                # Группируем по балансу
-                with_balance = [k for k in privkeys if k["balance_usd"] > 0]
-                without_balance = [k for k in privkeys if k["balance_usd"] == 0]
-                
-                if with_balance:
-                    f.write(f"💰 С БАЛАНСОМ ({len(with_balance)} шт):\n")
-                    f.write("-"*70 + "\n")
-                    for key in sorted(with_balance, key=lambda x: x["balance_usd"], reverse=True):
-                        f.write(f"\nПриватный ключ: {key['privkey']}\n")
-                        f.write(f"Адрес: {key['address']}\n")
-                        f.write(f"Баланс: ${key['balance_usd']:,.2f}\n")
-                        f.write(f"Сети: {', '.join(key['chains']) if key['chains'] else 'нет'}\n")
-                        f.write(f"Тип: {key['type']}\n")
-                    f.write("\n")
-                
-                if without_balance:
-                    f.write(f"\n📭 БЕЗ БАЛАНСА ({len(without_balance)} шт):\n")
-                    f.write("-"*70 + "\n")
-                    f.write("⚠️ Эти ключи валидные, но на них нет денег.\n")
-                    f.write("💡 Сохрани их - может быть придут аирдропы или ошибочные переводы!\n\n")
-                    for key in without_balance:
-                        f.write(f"\nПриватный ключ: {key['privkey']}\n")
-                        f.write(f"Адрес: {key['address']}\n")
-                        f.write(f"Тип: {key['type']}\n")
+            if fmt == "txt":
+                filename = f"privkeys_{timestamp}.txt"
+                self._export_keys_txt(keys, filename)
             
-            self.log(w, f"✅ Экспортировано {len(privkeys)} ключей в {filename}")
-            self.log(w, f"   💰 С балансом: {len(with_balance)}")
-            self.log(w, f"   📭 Без баланса: {len(without_balance)}")
+            elif fmt == "json":
+                filename = f"privkeys_{timestamp}.json"
+                self._export_keys_json(keys, filename)
+            
+            elif fmt == "csv":
+                filename = f"privkeys_{timestamp}.csv"
+                self._export_keys_csv(keys, filename)
+            
+            elif fmt == "xlsx":
+                filename = f"privkeys_{timestamp}.xlsx"
+                self._export_keys_excel(keys, filename)
+            
+            elif fmt == "metamask":
+                filename = f"privkeys_metamask_{timestamp}.txt"
+                self._export_keys_metamask(keys, filename)
+            
+            self.log(w, f"✅ Экспортировано {len(keys)} ключей в {filename}")
             
         except Exception as e:
             self.log(w, f"❌ Ошибка экспорта: {e}")
+    
+    def _export_keys_txt(self, keys, filename):
+        """Экспорт в TXT"""
+        with open(filename, "w", encoding="utf-8") as f:
+            f.write("="*70 + "\n")
+            f.write("ЭКСПОРТ ПРИВАТНЫХ КЛЮЧЕЙ\n")
+            f.write(f"Дата: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"Всего ключей: {len(keys)}\n")
+            f.write("="*70 + "\n\n")
+            
+            for i, key in enumerate(keys, 1):
+                f.write(f"[{i}] {'='*65}\n")
+                f.write(f"Приватный ключ: {key['privkey']}\n")
+                f.write(f"Адрес: {key['address']}\n")
+                f.write(f"Баланс: ${key['balance_usd']:,.2f}\n")
+                f.write(f"Сети: {', '.join(key['chains']) if key['chains'] else 'нет'}\n")
+                f.write(f"Тип: {key['type']}\n\n")
+    
+    def _export_keys_json(self, keys, filename):
+        """Экспорт в JSON"""
+        import json
+        data = {
+            "export_date": datetime.now().isoformat(),
+            "total_keys": len(keys),
+            "keys": keys
+        }
+        with open(filename, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+    
+    def _export_keys_csv(self, keys, filename):
+        """Экспорт в CSV"""
+        with open(filename, "w", encoding="utf-8", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(["Private Key", "Address", "Balance USD", "Chains", "Type"])
+            for key in keys:
+                writer.writerow([
+                    key['privkey'],
+                    key['address'],
+                    key['balance_usd'],
+                    ', '.join(key['chains']) if key['chains'] else '',
+                    key['type']
+                ])
+    
+    def _export_keys_excel(self, keys, filename):
+        """Экспорт в Excel"""
+        try:
+            from openpyxl import Workbook
+            from openpyxl.styles import Font, PatternFill, Alignment
+            
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "Private Keys"
+            
+            # Заголовки
+            headers = ["#", "Private Key", "Address", "Balance USD", "Chains", "Type"]
+            for col, header in enumerate(headers, 1):
+                cell = ws.cell(1, col, header)
+                cell.font = Font(bold=True, size=12)
+                cell.fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+                cell.font = Font(bold=True, color="FFFFFF")
+                cell.alignment = Alignment(horizontal="center")
+            
+            # Данные
+            for row, key in enumerate(keys, 2):
+                ws.cell(row, 1, row-1)
+                ws.cell(row, 2, key['privkey'])
+                ws.cell(row, 3, key['address'])
+                ws.cell(row, 4, key['balance_usd'])
+                ws.cell(row, 5, ', '.join(key['chains']) if key['chains'] else '')
+                ws.cell(row, 6, key['type'])
+                
+                # Цвет строки в зависимости от баланса
+                if key['balance_usd'] > 0:
+                    fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
+                    for col in range(1, 7):
+                        ws.cell(row, col).fill = fill
+            
+            # Автоширина колонок
+            for col in ws.columns:
+                max_length = 0
+                column = col[0].column_letter
+                for cell in col:
+                    try:
+                        if len(str(cell.value)) > max_length:
+                            max_length = len(cell.value)
+                    except:
+                        pass
+                adjusted_width = min(max_length + 2, 50)
+                ws.column_dimensions[column].width = adjusted_width
+            
+            wb.save(filename)
+            
+        except ImportError:
+            # Fallback to CSV if openpyxl not installed
+            self._export_keys_csv(keys, filename.replace('.xlsx', '.csv'))
+    
+    def _export_keys_metamask(self, keys, filename):
+        """Экспорт в формате MetaMask (один ключ на строку)"""
+        with open(filename, "w", encoding="utf-8") as f:
+            f.write("# MetaMask Import Format\n")
+            f.write("# Скопируй ключи ниже и импортируй в MetaMask\n")
+            f.write("# Settings -> Import Account -> Private Key\n\n")
+            for key in keys:
+                f.write(f"{key['privkey']}\n")
+    
+    def _copy_keys_to_clipboard(self, keys, filter_val, dialog):
+        """Копировать ключи в буфер обмена"""
+        if filter_val == "with_balance":
+            keys_to_copy = [k for k in keys if k["balance_usd"] > 0]
+        elif filter_val == "without_balance":
+            keys_to_copy = [k for k in keys if k["balance_usd"] == 0]
+        else:
+            keys_to_copy = keys
+        
+        # Формируем текст для копирования
+        text = "\n".join([k['privkey'] for k in keys_to_copy])
+        
+        # Копируем в буфер
+        self.clipboard_clear()
+        self.clipboard_append(text)
+        
+        # Показываем уведомление
+        dialog.destroy()
+        
+        # Создаем временное окно уведомления
+        notif = ctk.CTkToplevel(self)
+        notif.title("✅ Скопировано")
+        notif.geometry("300x100")
+        notif.configure(fg_color=BG)
+        notif.attributes("-topmost", True)
+        
+        ctk.CTkLabel(notif, text="✅ Скопировано в буфер!",
+                     font=("Segoe UI", 14, "bold"), text_color=GREEN
+                     ).pack(pady=(20, 5))
+        ctk.CTkLabel(notif, text=f"{len(keys_to_copy)} ключей",
+                     font=("Segoe UI", 11), text_color=TEXT
+                     ).pack()
+        
+        # Автозакрытие через 2 секунды
+        notif.after(2000, notif.destroy)
 
 
 if __name__ == "__main__":
