@@ -23,8 +23,8 @@ except ImportError:
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-# Установлена актуальная версия v1.0.67
-APP_VERSION = "1.0.67"
+# Установлена актуальная версия v1.0.68
+APP_VERSION = "1.0.68"
 
 if platform.system() == "Windows":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -355,8 +355,9 @@ class MultiCheckerApp(ctk.CTk):
         w["proxy"] = ctk.CTkEntry(sr, font=("Segoe UI", 12), fg_color=CARD2,
                                    border_color=BORDER, text_color=TEXT,
                                    corner_radius=8,
-                                   placeholder_text="http://ip:port  или  proxy.txt")
+                                   placeholder_text="http://ip:port, socks4://ip:port, socks5://ip:port")
         w["proxy"].grid(row=0, column=6, sticky="ew")
+        create_tooltip(w["proxy"], "Поддержка: HTTP, HTTPS, SOCKS4, SOCKS5\nФорматы: http://ip:port, socks4://user:pass@ip:port")
 
         tg_row = ctk.CTkFrame(sc, fg_color="transparent")
         tg_row.grid(row=2, column=0, padx=12, pady=(2, 12), sticky="ew")
