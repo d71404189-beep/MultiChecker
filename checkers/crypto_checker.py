@@ -419,11 +419,25 @@ class CryptoChecker(BaseChecker):
         exchange = self._detect_exchange(data)
         if exchange:
             login, password = self._parse_credentials(data)
-            result = self.make_result(input=data, type="exchange")
-            result["exchange"] = exchange; result["platform"] = exchange; result["exists"] = True
-            result["info"].update({"exchange": exchange, "login": login, "password": password,
-                                   "message": f"Exchange: {exchange} | Login: {login} | Pass: {password}"})
-            return result
+            
+            # ИСПРАВЛЕНО: Проверяем что есть хотя бы login или password
+            # Если оба пустые - это просто URL, а не credentials
+            if login or password:
+                result = self.make_result(input=data, type="exchange")
+                result["exchange"] = exchange
+                result["platform"] = exchange
+                result["exists"] = True
+                result["info"].update({
+                    "exchange": exchange,
+                    "login": login,
+                    "password": password,
+                    "message": f"Exchange: {exchange} | Login: {login} | Pass: {password}"
+                })
+                return result
+            else:
+                # Если credentials не найдены, это просто URL
+                # Не обрабатываем как exchange, продолжаем дальше
+                pass
 
         if data.endswith(".eth"):
             resolved = await self._resolve_ens(data, timeout, proxy, session)
@@ -1053,6 +1067,12 @@ class CryptoChecker(BaseChecker):
             elif len(parts) == 1:
                 return (parts[0].strip(), "")
         
+        # ИСПРАВЛЕНО: Проверяем что это не просто URL без credentials
+        # Если строка начинается с домена (но не http://) и не содержит :, это просто URL
+        if not s.startswith("http") and "/" in s and ":" not in s:
+            # Это просто URL типа: accounts.binance.com/en/login-123456
+            return ("", "")
+        
         # СТАНДАРТНАЯ ОБРАБОТКА: email:password или exchange:login:password
         tokens = [t.strip() for t in s.split(":") if t.strip()]
         
@@ -1067,10 +1087,12 @@ class CryptoChecker(BaseChecker):
             # Формат: email:password или login:password
             return (tokens[0], tokens[1])
         
-        # Если 1 токен
-        if len(tokens) == 1:
+        # Если 1 токен и это email
+        if len(tokens) == 1 and "@" in tokens[0]:
+            # Формат: только email
             return (tokens[0], "")
         
+        # Иначе - нет credentials
         return ("", "")
 
     async def _check_bitcoin(self, address, timeout, proxy, session):
