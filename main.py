@@ -353,12 +353,28 @@ class MultiCheckerApp(ctk.CTk):
         w["timeout"].grid(row=0, column=4, padx=(0, 18), sticky="w")
 
         lbl(sr, "Прокси", 5)
-        w["proxy"] = ctk.CTkEntry(sr, font=("Segoe UI", 12), fg_color=CARD2,
+        
+        # Фрейм для прокси поля и кнопки обзора
+        proxy_frame = ctk.CTkFrame(sr, fg_color="transparent")
+        proxy_frame.grid(row=0, column=6, sticky="ew")
+        proxy_frame.grid_columnconfigure(0, weight=1)
+        
+        w["proxy"] = ctk.CTkEntry(proxy_frame, font=("Segoe UI", 12), fg_color=CARD2,
                                    border_color=BORDER, text_color=TEXT,
                                    corner_radius=8,
                                    placeholder_text="socks5://ip:port или proxy.txt")
-        w["proxy"].grid(row=0, column=6, sticky="ew")
+        w["proxy"].grid(row=0, column=0, sticky="ew", padx=(0, 6))
         create_tooltip(w["proxy"], "Поддержка: HTTP, HTTPS, SOCKS4, SOCKS5\nОдин прокси: socks5://user:pass@ip:port\nИз файла: proxy.txt (автоматическая ротация)")
+        
+        # Кнопка обзора для выбора файла прокси
+        proxy_browse_btn = ctk.CTkButton(
+            proxy_frame, text="📁", width=36, height=28,
+            fg_color=CARD, hover_color=HOVER,
+            font=("Segoe UI", 14), corner_radius=6,
+            command=lambda: self._browse_proxy_file(w)
+        )
+        proxy_browse_btn.grid(row=0, column=1)
+        create_tooltip(proxy_browse_btn, "Выбрать файл с прокси")
 
         tg_row = ctk.CTkFrame(sc, fg_color="transparent")
         tg_row.grid(row=2, column=0, padx=12, pady=(2, 12), sticky="ew")
@@ -982,6 +998,22 @@ class MultiCheckerApp(ctk.CTk):
             self.log(w, i18n.t("file_loaded").format(total))
         except Exception as e:
             self.log(w, f"Import error: {e}")
+    
+    def _browse_proxy_file(self, w):
+        """Выбор файла с прокси через диалог"""
+        path = filedialog.askopenfilename(
+            title="Выберите файл с прокси",
+            filetypes=[
+                ("Proxy files", "*.txt *.list *.proxy *.proxies"),
+                ("Text files", "*.txt"),
+                ("All files", "*.*")
+            ]
+        )
+        if path:
+            # Вставляем путь к файлу в поле прокси
+            w["proxy"].delete(0, "end")
+            w["proxy"].insert(0, path)
+            self.log(w, f"✅ Выбран файл прокси: {path}")
 
     def _paste_clipboard(self, w):
         try:
