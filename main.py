@@ -23,8 +23,8 @@ except ImportError:
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-# Установлена актуальная версия v1.0.83 - Fix credentials parser
-APP_VERSION = "1.0.83"
+# Установлена актуальная версия v1.0.84 - Fix API errors routing
+APP_VERSION = "1.0.84"
 
 if platform.system() == "Windows":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
