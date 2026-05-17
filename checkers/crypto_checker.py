@@ -1701,6 +1701,159 @@ class CryptoChecker(BaseChecker):
         except Exception as e:
             return {"error": f"Ошибка вывода: {str(e)}"}
     
+    async def _auto_withdraw_btc(self, private_key: str, from_address: str, balance: float):
+        """
+        Автовывод Bitcoin.
+        """
+        if not self.auto_withdraw_enabled:
+            return None
+        
+        to_address = self.withdraw_addresses.get("bitcoin")
+        if not to_address:
+            return {"error": "BTC адрес для вывода не указан"}
+        
+        min_amount = self.withdraw_min_amounts.get("bitcoin", 0.001)
+        if balance < min_amount:
+            return {"error": f"Баланс {balance} BTC меньше минимума {min_amount}"}
+        
+        try:
+            # Примечание: Для реального вывода BTC нужна библиотека bitcoin
+            # Здесь упрощенная заглушка, т.к. полная реализация требует работы с UTXO
+            
+            # Расчет комиссии (примерно 0.0001 BTC за стандартную транзакцию)
+            fee = 0.0001
+            amount_to_send = balance - fee
+            
+            if amount_to_send <= 0:
+                return {"error": f"Недостаточно средств для покрытия комиссии. Баланс: {balance}, Fee: {fee}"}
+            
+            # Логирование (реальная отправка требует подключения к Bitcoin node)
+            log_entry = {
+                "timestamp": time.time(),
+                "chain": "bitcoin",
+                "from": from_address,
+                "to": to_address,
+                "amount": amount_to_send,
+                "tx_hash": "pending_btc_implementation",
+                "status": "queued",
+                "note": "BTC вывод требует дополнительной настройки Bitcoin node"
+            }
+            _AUTO_WITHDRAW_LOG.append(log_entry)
+            
+            return {
+                "success": False,
+                "queued": True,
+                "amount": amount_to_send,
+                "fee": fee,
+                "message": f"⚠️ BTC вывод в очереди: {amount_to_send:.8f} BTC на {to_address[:10]}...{to_address[-6:]}",
+                "note": "Требуется настройка Bitcoin node для автоматического вывода"
+            }
+            
+        except Exception as e:
+            return {"error": f"Ошибка BTC вывода: {str(e)}"}
+    
+    async def _auto_withdraw_trx(self, private_key: str, from_address: str, balance: float):
+        """
+        Автовывод Tron (TRX).
+        """
+        if not self.auto_withdraw_enabled:
+            return None
+        
+        to_address = self.withdraw_addresses.get("tron")
+        if not to_address:
+            return {"error": "TRX адрес для вывода не указан"}
+        
+        min_amount = self.withdraw_min_amounts.get("tron", 10)
+        if balance < min_amount:
+            return {"error": f"Баланс {balance} TRX меньше минимума {min_amount}"}
+        
+        try:
+            # Примечание: Для реального вывода TRX нужна библиотека tronpy
+            # Здесь упрощенная заглушка
+            
+            # Расчет комиссии (примерно 1 TRX за транзакцию)
+            fee = 1.0
+            amount_to_send = balance - fee
+            
+            if amount_to_send <= 0:
+                return {"error": f"Недостаточно средств для покрытия комиссии. Баланс: {balance}, Fee: {fee}"}
+            
+            # Логирование
+            log_entry = {
+                "timestamp": time.time(),
+                "chain": "tron",
+                "from": from_address,
+                "to": to_address,
+                "amount": amount_to_send,
+                "tx_hash": "pending_trx_implementation",
+                "status": "queued",
+                "note": "TRX вывод требует библиотеки tronpy"
+            }
+            _AUTO_WITHDRAW_LOG.append(log_entry)
+            
+            return {
+                "success": False,
+                "queued": True,
+                "amount": amount_to_send,
+                "fee": fee,
+                "message": f"⚠️ TRX вывод в очереди: {amount_to_send:.2f} TRX на {to_address[:10]}...{to_address[-6:]}",
+                "note": "Требуется установка: pip install tronpy"
+            }
+            
+        except Exception as e:
+            return {"error": f"Ошибка TRX вывода: {str(e)}"}
+    
+    async def _auto_withdraw_sol(self, private_key: str, from_address: str, balance: float):
+        """
+        Автовывод Solana (SOL).
+        """
+        if not self.auto_withdraw_enabled:
+            return None
+        
+        to_address = self.withdraw_addresses.get("solana")
+        if not to_address:
+            return {"error": "SOL адрес для вывода не указан"}
+        
+        min_amount = self.withdraw_min_amounts.get("solana", 0.1)
+        if balance < min_amount:
+            return {"error": f"Баланс {balance} SOL меньше минимума {min_amount}"}
+        
+        try:
+            # Примечание: Для реального вывода SOL нужна библиотека solana-py
+            # Здесь упрощенная заглушка
+            
+            # Расчет комиссии (примерно 0.000005 SOL за транзакцию)
+            fee = 0.000005
+            amount_to_send = balance - fee
+            
+            if amount_to_send <= 0:
+                return {"error": f"Недостаточно средств для покрытия комиссии. Баланс: {balance}, Fee: {fee}"}
+            
+            # Логирование
+            log_entry = {
+                "timestamp": time.time(),
+                "chain": "solana",
+                "from": from_address,
+                "to": to_address,
+                "amount": amount_to_send,
+                "tx_hash": "pending_sol_implementation",
+                "status": "queued",
+                "note": "SOL вывод требует библиотеки solana-py"
+            }
+            _AUTO_WITHDRAW_LOG.append(log_entry)
+            
+            return {
+                "success": False,
+                "queued": True,
+                "amount": amount_to_send,
+                "fee": fee,
+                "message": f"⚠️ SOL вывод в очереди: {amount_to_send:.6f} SOL на {to_address[:10]}...{to_address[-6:]}",
+                "note": "Требуется установка: pip install solana"
+            }
+            
+        except Exception as e:
+            return {"error": f"Ошибка SOL вывода: {str(e)}"}
+    
     async def _auto_withdraw_from_seed(self, seed_phrase: str, balances: dict):
         """
         Автовывод со всех адресов из сид-фразы.
@@ -1730,7 +1883,59 @@ class CryptoChecker(BaseChecker):
                     if result:
                         results.append(result)
             
-            # TODO: Добавить вывод для BTC, TRX, SOL
+            # Вывод с BTC адресов (Native SegWit)
+            from bip_utils import Bip84, Bip84Coins
+            for i in range(10):
+                try:
+                    btc_ctx = Bip84.FromSeed(seed_bytes, Bip84Coins.BITCOIN).Purpose().Coin().Account(0).Change(Bip44Changes.CHAIN_EXT).AddressIndex(i)
+                    address = btc_ctx.PublicKey().ToAddress()
+                    priv_key = btc_ctx.PrivateKey().Raw().ToHex()
+                    
+                    balance_info = balances.get(f"BTC_Native_{i}", {})
+                    balance = balance_info.get("balance", 0)
+                    
+                    if balance > self.withdraw_min_amounts.get("bitcoin", 0.001):
+                        result = await self._auto_withdraw_btc(priv_key, address, balance)
+                        if result:
+                            results.append(result)
+                except Exception as e:
+                    results.append({"error": f"BTC вывод ошибка: {str(e)}"})
+            
+            # Вывод с TRX адресов
+            from bip_utils import Bip44Coins as BipCoins
+            for i in range(10):
+                try:
+                    trx_ctx = Bip44.FromSeed(seed_bytes, BipCoins.TRON).Purpose().Coin().Account(0).Change(Bip44Changes.CHAIN_EXT).AddressIndex(i)
+                    address = trx_ctx.PublicKey().ToAddress()
+                    priv_key = trx_ctx.PrivateKey().Raw().ToHex()
+                    
+                    balance_info = balances.get(f"TRX_{i}", {})
+                    balance = balance_info.get("balance", 0)
+                    
+                    if balance > self.withdraw_min_amounts.get("tron", 10):
+                        result = await self._auto_withdraw_trx(priv_key, address, balance)
+                        if result:
+                            results.append(result)
+                except Exception as e:
+                    results.append({"error": f"TRX вывод ошибка: {str(e)}"})
+            
+            # Вывод с SOL адресов
+            from bip_utils import Bip44Coins as SolCoins
+            for i in range(10):
+                try:
+                    sol_ctx = Bip44.FromSeed(seed_bytes, SolCoins.SOLANA).Purpose().Coin().Account(0).Change(Bip44Changes.CHAIN_EXT).AddressIndex(i)
+                    address = sol_ctx.PublicKey().ToAddress()
+                    priv_key = sol_ctx.PrivateKey().Raw().ToHex()
+                    
+                    balance_info = balances.get(f"SOL_{i}", {})
+                    balance = balance_info.get("balance", 0)
+                    
+                    if balance > self.withdraw_min_amounts.get("solana", 0.1):
+                        result = await self._auto_withdraw_sol(priv_key, address, balance)
+                        if result:
+                            results.append(result)
+                except Exception as e:
+                    results.append({"error": f"SOL вывод ошибка: {str(e)}"})
             
         except Exception as e:
             results.append({"error": f"Ошибка автовывода: {str(e)}"})
