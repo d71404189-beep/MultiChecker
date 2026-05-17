@@ -23,8 +23,8 @@ except ImportError:
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-# Установлена актуальная версия v1.0.71
-APP_VERSION = "1.0.71"
+# Установлена актуальная версия v1.0.72
+APP_VERSION = "1.0.72"
 
 if platform.system() == "Windows":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -47,28 +47,42 @@ _TEXTBOX_DISPLAY_LIMIT = 5000
 _GATHER_BATCH_SIZE     = 50000
 _MAX_LOG_LINES         = 50000
 
-BG       = "#0d1117"
-SIDEBAR  = "#161b22"
-CARD     = "#1c2128"
-CARD2    = "#21262d"
-BORDER   = "#30363d"
-ACCENT   = "#58a6ff"
-GREEN    = "#3fb950"
-RED      = "#f85149"
-YELLOW   = "#d29922"
-PURPLE   = "#bc8cff"
-ORANGE   = "#f0883e"
-TEXT     = "#e6edf3"
-MUTED    = "#8b949e"
-HOVER    = "#2d333b"
+# 🎨 УЛУЧШЕННАЯ ЦВЕТОВАЯ ПАЛИТРА v1.0.72
+BG       = "#0a0e1a"      # Более глубокий темный фон
+SIDEBAR  = "#0f1419"      # Темный sidebar с легким синим оттенком
+CARD     = "#1a1f2e"      # Карточки с синим оттенком
+CARD2    = "#242938"      # Вторичные карточки
+BORDER   = "#2d3548"      # Более заметные границы
+ACCENT   = "#3b82f6"      # Яркий синий (modern blue)
+ACCENT2  = "#60a5fa"      # Светлый синий для hover
+GREEN    = "#10b981"      # Современный зеленый (emerald)
+GREEN2   = "#34d399"      # Светлый зеленый для hover
+RED      = "#ef4444"      # Современный красный
+RED2     = "#f87171"      # Светлый красный для hover
+YELLOW   = "#f59e0b"      # Современный желтый (amber)
+YELLOW2  = "#fbbf24"      # Светлый желтый для hover
+PURPLE   = "#8b5cf6"      # Современный фиолетовый (violet)
+PURPLE2  = "#a78bfa"      # Светлый фиолетовый для hover
+ORANGE   = "#f97316"      # Современный оранжевый
+ORANGE2  = "#fb923c"      # Светлый оранжевый для hover
+CYAN     = "#06b6d4"      # Современный голубой (cyan)
+CYAN2    = "#22d3ee"      # Светлый голубой для hover
+PINK     = "#ec4899"      # Современный розовый
+PINK2    = "#f472b6"      # Светлый розовый для hover
+TEXT     = "#f1f5f9"      # Более яркий белый текст
+TEXT2    = "#cbd5e1"      # Вторичный текст
+MUTED    = "#94a3b8"      # Приглушенный текст
+HOVER    = "#1e293b"      # Hover эффект
+SHADOW   = "#00000040"    # Тень для карточек
 
+# 🎯 УЛУЧШЕННЫЕ ИКОНКИ ДЛЯ ТАБОВ
 TAB_META = {
-    "All":    ("⬡", "all_categories"),
-    "Email":  ("✉", "email"),
-    "Social": ("◈", "social"),
-    "Crypto": ("◎", "crypto"),
-    "Games":  ("◉", "games"),
-    "AI":     ("◆", "ai"),
+    "All":    ("🌐", "all_categories"),    # Глобус для "Все"
+    "Email":  ("📧", "email"),              # Конверт для Email
+    "Social": ("👥", "social"),             # Люди для Social
+    "Crypto": ("₿", "crypto"),              # Bitcoin для Crypto
+    "Games":  ("🎮", "games"),              # Геймпад для Games
+    "AI":     ("🤖", "ai"),                 # Робот для AI
 }
 
 
@@ -188,81 +202,155 @@ class MultiCheckerApp(ctk.CTk):
         self._build_content()
 
     def _build_sidebar(self):
-        sb = ctk.CTkFrame(self, width=220, fg_color=SIDEBAR, corner_radius=0)
+        # 🎨 Современный sidebar с градиентом
+        sb = ctk.CTkFrame(self, width=240, fg_color=SIDEBAR, corner_radius=0)
         sb.grid(row=0, column=0, sticky="nsew")
         sb.grid_propagate(False)
-        sb.grid_rowconfigure(8, weight=1)  # Динамический отступ для нижних кнопок настроек
+        sb.grid_rowconfigure(8, weight=1)
         sb.grid_columnconfigure(0, weight=1)
 
+        # 🎯 Логотип с градиентным эффектом
         logo = ctk.CTkFrame(sb, fg_color="transparent")
-        logo.grid(row=0, column=0, padx=18, pady=(22, 6), sticky="ew")
-        ctk.CTkLabel(logo, text="MultiChecker", font=("Segoe UI", 18, "bold"),
-                     text_color=ACCENT).pack(anchor="w")
-        ctk.CTkLabel(logo, text=f"Pro  •  v{APP_VERSION}", font=("Segoe UI", 11),
-                     text_color=MUTED).pack(anchor="w")
+        logo.grid(row=0, column=0, padx=20, pady=(28, 10), sticky="ew")
         
-        # Фиксация автораBes Bits в интерфейсе
-        ctk.CTkLabel(logo, text="Автор: Bes Bits", font=("Segoe UI", 11, "italic"),
-                     text_color=PURPLE).pack(anchor="w", pady=(2, 0))
+        # Название с эмодзи
+        title_frame = ctk.CTkFrame(logo, fg_color=CARD, corner_radius=12)
+        title_frame.pack(fill="x", pady=(0, 8))
+        
+        ctk.CTkLabel(title_frame, text="⚡ MultiChecker", 
+                     font=("Segoe UI", 20, "bold"),
+                     text_color=ACCENT).pack(anchor="w", padx=16, pady=(12, 2))
+        ctk.CTkLabel(title_frame, text=f"Pro Edition  •  v{APP_VERSION}", 
+                     font=("Segoe UI", 10),
+                     text_color=MUTED).pack(anchor="w", padx=16, pady=(0, 12))
+        
+        # Автор с иконкой
+        author_frame = ctk.CTkFrame(logo, fg_color="transparent")
+        author_frame.pack(fill="x")
+        ctk.CTkLabel(author_frame, text="👨‍💻 Автор: Bes Bits", 
+                     font=("Segoe UI", 10, "italic"),
+                     text_color=PURPLE).pack(anchor="w", padx=4)
 
-        ctk.CTkFrame(sb, height=1, fg_color=BORDER).grid(
-            row=1, column=0, padx=14, pady=(6, 10), sticky="ew")
+        # Разделитель с градиентом
+        sep1 = ctk.CTkFrame(sb, height=2, fg_color=BORDER, corner_radius=1)
+        sep1.grid(row=1, column=0, padx=16, pady=(8, 12), sticky="ew")
 
+        # 🎯 Навигационные кнопки с улучшенным дизайном
         self._nav_btns = {}
+        nav_colors = {
+            "All": CYAN,
+            "Email": PURPLE,
+            "Social": PINK,
+            "Crypto": YELLOW,
+            "Games": GREEN,
+            "AI": ORANGE,
+        }
+        
         for i, (tab, (icon, _)) in enumerate(TAB_META.items()):
             btn = ctk.CTkButton(
-                sb, text=f"  {icon}   {tab}",
-                anchor="w", font=("Segoe UI", 13),
+                sb, text=f"{icon}  {tab}",
+                anchor="w", font=("Segoe UI", 14),
                 fg_color="transparent", hover_color=HOVER,
-                text_color=TEXT, corner_radius=8, height=42,
+                text_color=TEXT, corner_radius=10, height=48,
                 command=lambda t=tab: self._switch_tab(t),
+                border_width=0,
             )
-            btn.grid(row=i + 2, column=0, padx=10, pady=2, sticky="ew")
+            btn.grid(row=i + 2, column=0, padx=12, pady=3, sticky="ew")
             self._nav_btns[tab] = btn
 
-        ctk.CTkFrame(sb, height=1, fg_color=BORDER).grid(
-            row=9, column=0, padx=14, pady=8, sticky="ew")
+        # Разделитель
+        sep2 = ctk.CTkFrame(sb, height=2, fg_color=BORDER, corner_radius=1)
+        sep2.grid(row=9, column=0, padx=16, pady=10, sticky="ew")
 
-        # Переключатель языковых пакетов
-        lang_f = ctk.CTkFrame(sb, fg_color="transparent")
-        lang_f.grid(row=10, column=0, padx=14, pady=4, sticky="ew")
-        ctk.CTkLabel(lang_f, text="Язык / Language", font=("Segoe UI", 10),
-                     text_color=MUTED).pack(anchor="w", padx=4)
+        # 🎨 Настройки в красивых карточках
+        settings_frame = ctk.CTkFrame(sb, fg_color=CARD, corner_radius=12)
+        settings_frame.grid(row=10, column=0, padx=12, pady=(0, 8), sticky="ew")
+        
+        # Язык
+        lang_header = ctk.CTkFrame(settings_frame, fg_color="transparent")
+        lang_header.pack(fill="x", padx=12, pady=(12, 4))
+        ctk.CTkLabel(lang_header, text="🌍 Язык / Language", 
+                     font=("Segoe UI", 11, "bold"),
+                     text_color=TEXT2).pack(anchor="w")
+        
         self.lang_sw = ctk.CTkSwitch(
-            lang_f, text="RU / EN", font=("Segoe UI", 12),
+            settings_frame, text="RU / EN", font=("Segoe UI", 12),
             command=self.toggle_lang,
-            button_color=ACCENT, progress_color=ACCENT,
+            button_color=ACCENT, progress_color=ACCENT2,
+            fg_color=CARD2,
         )
-        self.lang_sw.pack(anchor="w", padx=4, pady=(4, 0))
+        self.lang_sw.pack(anchor="w", padx=12, pady=(0, 12))
         if i18n.current_lang == "ru":
             self.lang_sw.select()
 
-        # Корректное разделение строк для устранения наложений элементов
-        theme_f = ctk.CTkFrame(sb, fg_color="transparent")
-        theme_f.grid(row=11, column=0, padx=14, pady=(15, 4), sticky="ew")
-        ctk.CTkLabel(theme_f, text="Theme", font=("Segoe UI", 10),
-                     text_color=MUTED).pack(anchor="w", padx=4)
+        # Тема
+        theme_frame = ctk.CTkFrame(sb, fg_color=CARD, corner_radius=12)
+        theme_frame.grid(row=11, column=0, padx=12, pady=(0, 8), sticky="ew")
+        
+        theme_header = ctk.CTkFrame(theme_frame, fg_color="transparent")
+        theme_header.pack(fill="x", padx=12, pady=(12, 4))
+        ctk.CTkLabel(theme_header, text="🎨 Тема / Theme", 
+                     font=("Segoe UI", 11, "bold"),
+                     text_color=TEXT2).pack(anchor="w")
+        
         self.theme_sw = ctk.CTkSwitch(
-            theme_f, text="Dark / Light", font=("Segoe UI", 12),
+            theme_frame, text="Dark / Light", font=("Segoe UI", 12),
             command=self._toggle_theme,
-            button_color=ACCENT, progress_color=ACCENT,
+            button_color=PURPLE, progress_color=PURPLE2,
+            fg_color=CARD2,
         )
-        self.theme_sw.pack(anchor="w", padx=4, pady=(4, 0))
+        self.theme_sw.pack(anchor="w", padx=12, pady=(0, 12))
 
+        # 🎯 Статус с красивым индикатором
+        status_frame = ctk.CTkFrame(sb, fg_color=CARD, corner_radius=12)
+        status_frame.grid(row=12, column=0, padx=12, pady=(0, 20), sticky="ew")
+        
+        status_inner = ctk.CTkFrame(status_frame, fg_color="transparent")
+        status_inner.pack(fill="x", padx=12, pady=12)
+        
+        # Индикатор статуса (точка)
+        status_dot = ctk.CTkLabel(status_inner, text="●", 
+                                   font=("Segoe UI", 16),
+                                   text_color=GREEN)
+        status_dot.pack(side="left", padx=(0, 8))
+        
         self._sb_status = ctk.CTkLabel(
-            sb, text="● Готов", font=("Segoe UI", 11), text_color=GREEN)
-        self._sb_status.grid(row=12, column=0, padx=18, pady=(8, 18), sticky="sw")
+            status_inner, text="Готов к работе", 
+            font=("Segoe UI", 12, "bold"), 
+            text_color=TEXT)
+        self._sb_status.pack(side="left")
 
         self._nav_highlight("All")
 
     def _nav_highlight(self, active):
+        # 🎨 Улучшенная подсветка активной вкладки с градиентом
+        nav_colors = {
+            "All": CYAN,
+            "Email": PURPLE,
+            "Social": PINK,
+            "Crypto": YELLOW,
+            "Games": GREEN,
+            "AI": ORANGE,
+        }
+        
         for tab, btn in self._nav_btns.items():
             if tab == active:
-                btn.configure(fg_color=CARD2, text_color=ACCENT,
-                               font=("Segoe UI", 13, "bold"))
+                # Активная вкладка - с цветным фоном
+                color = nav_colors.get(tab, ACCENT)
+                btn.configure(
+                    fg_color=color, 
+                    text_color="#ffffff",
+                    font=("Segoe UI", 14, "bold"),
+                    border_width=0,
+                )
             else:
-                btn.configure(fg_color="transparent", text_color=TEXT,
-                               font=("Segoe UI", 13))
+                # Неактивная вкладка - прозрачная
+                btn.configure(
+                    fg_color="transparent", 
+                    text_color=TEXT2,
+                    font=("Segoe UI", 14),
+                    border_width=0,
+                )
 
     def _switch_tab(self, name):
         self._active_tab = name
@@ -569,47 +657,92 @@ class MultiCheckerApp(ctk.CTk):
             w["swap_dex"].set("Uniswap")
             w["swap_dex"].grid(row=0, column=7, padx=(0, 10), pady=8, sticky="w")
 
+        # 🎨 Улучшенные кнопки действий с иконками и градиентами
         bf = ctk.CTkFrame(body, fg_color="transparent")
-        bf.grid(row=4 if tab_name == "Crypto" else 2, column=0, padx=16, pady=6, sticky="ew")
+        bf.grid(row=4 if tab_name == "Crypto" else 2, column=0, padx=16, pady=8, sticky="ew")
 
-        def btn(parent, text, fg, hv, cmd, width=None):
-            kw = dict(text=text, fg_color=fg, hover_color=hv,
-                      font=("Segoe UI", 12, "bold"), corner_radius=8, height=38, command=cmd)
+        def btn(parent, text, fg, hv, cmd, width=None, icon=""):
+            """Создать красивую кнопку с иконкой"""
+            display_text = f"{icon}  {text}" if icon else text
+            kw = dict(
+                text=display_text, 
+                fg_color=fg, 
+                hover_color=hv,
+                font=("Segoe UI", 13, "bold"), 
+                corner_radius=10, 
+                height=42, 
+                command=cmd,
+                border_width=0,
+            )
             if width:
                 kw["width"] = width
             return ctk.CTkButton(parent, **kw)
 
-        btn(bf, "▶  Старт",   GREEN,  "#2ea043", lambda: self.start_check(tab_name), 140).pack(side="left", padx=(0,6))
-        btn(bf, "■  Стоп",    RED,    "#da3633", self.stop_check, 110).pack(side="left", padx=(0,6))
-        btn(bf, "⌫  Очистить", CARD,  HOVER, lambda: self.clear_output(w), 120).pack(side="left", padx=(0,6))
-        btn(bf, "↑  Файл",    CARD,   HOVER, lambda: self.import_file(w), 110).pack(side="left", padx=(0,6))
-        btn(bf, "\U0001f4cb",  CARD,   HOVER, lambda: self._paste_clipboard(w), 42).pack(side="left", padx=(0,6))
-        btn(bf, "⊘  Дубли",   "#6e40c9", "#5a32a3", lambda: self.remove_duplicates(w), 110).pack(side="left", padx=(0,6))
-        btn(bf, "📋 ДАМП",    ORANGE, "#d67d3e", lambda: self.parse_dump(w), 110).pack(side="left", padx=(0,6))
+        # Основные кнопки с улучшенным дизайном
+        btn_start = btn(bf, "Старт", GREEN, GREEN2, lambda: self.start_check(tab_name), 150, "▶")
+        btn_start.pack(side="left", padx=(0,8))
+        
+        btn_stop = btn(bf, "Стоп", RED, RED2, self.stop_check, 120, "■")
+        btn_stop.pack(side="left", padx=(0,8))
+        
+        btn_clear = btn(bf, "Очистить", CARD, HOVER, lambda: self.clear_output(w), 130, "🗑")
+        btn_clear.pack(side="left", padx=(0,8))
+        
+        btn_file = btn(bf, "Файл", CYAN, CYAN2, lambda: self.import_file(w), 120, "📁")
+        btn_file.pack(side="left", padx=(0,8))
+        
+        btn_paste = btn(bf, "", PURPLE, PURPLE2, lambda: self._paste_clipboard(w), 50, "📋")
+        btn_paste.pack(side="left", padx=(0,8))
+        
+        btn_dupes = btn(bf, "Дубли", PURPLE, PURPLE2, lambda: self.remove_duplicates(w), 120, "⊘")
+        btn_dupes.pack(side="left", padx=(0,8))
+        
+        btn_dump = btn(bf, "ДАМП", ORANGE, ORANGE2, lambda: self.parse_dump(w), 130, "📋")
+        btn_dump.pack(side="left", padx=(0,8))
         
         # Добавляем tooltips для кнопок
-        create_tooltip(bf.winfo_children()[0], "Запустить проверку данных")
-        create_tooltip(bf.winfo_children()[1], "Остановить текущую проверку")
-        create_tooltip(bf.winfo_children()[2], "Очистить поле вывода")
-        create_tooltip(bf.winfo_children()[3], "Загрузить данные из файла")
-        create_tooltip(bf.winfo_children()[4], "Вставить из буфера обмена (Ctrl+V)")
-        create_tooltip(bf.winfo_children()[5], "Удалить дубликаты из списка")
-        create_tooltip(bf.winfo_children()[6], "Парсить дамп (email:pass:seed, user|pass|key и т.д.)")
+        create_tooltip(btn_start, "Запустить проверку данных")
+        create_tooltip(btn_stop, "Остановить текущую проверку")
+        create_tooltip(btn_clear, "Очистить поле вывода")
+        create_tooltip(btn_file, "Загрузить данные из файла")
+        create_tooltip(btn_paste, "Вставить из буфера обмена (Ctrl+V)")
+        create_tooltip(btn_dupes, "Удалить дубликаты из списка")
+        create_tooltip(btn_dump, "Парсить дамп (email:pass:seed, user|pass|key и т.д.)")
 
-        eg = ctk.CTkFrame(bf, fg_color=CARD, corner_radius=8)
-        eg.pack(side="left", padx=(8, 0))
-        ctk.CTkLabel(eg, text="Экспорт:", font=("Segoe UI", 11),
-                     text_color=MUTED).pack(side="left", padx=(10, 4))
+        # 🎨 Красивая панель экспорта
+        eg = ctk.CTkFrame(bf, fg_color=CARD, corner_radius=12, border_width=1, border_color=BORDER)
+        eg.pack(side="left", padx=(12, 0))
+        
+        export_header = ctk.CTkFrame(eg, fg_color="transparent")
+        export_header.pack(side="left", padx=12, pady=8)
+        ctk.CTkLabel(export_header, text="💾 Экспорт:", font=("Segoe UI", 12, "bold"),
+                     text_color=TEXT2).pack(side="left", padx=(0, 8))
         
         # Кнопки экспорта с сохранением ссылок для tooltips
         export_buttons = []
         
-        for fmt, lbl_text in [("txt","TXT"),("json","JSON"),("csv","CSV"),("xlsx","EXCEL")]:
-            btn_export = ctk.CTkButton(eg, text=lbl_text, fg_color="transparent",
-                           hover_color=HOVER, font=("Segoe UI", 11, "bold"),
-                           text_color=ACCENT, corner_radius=6, height=30, width=54,
-                           command=lambda f=fmt: self.export_results(w, f))
-            btn_export.pack(side="left", padx=2, pady=4)
+        export_formats = [
+            ("txt", "TXT", ACCENT),
+            ("json", "JSON", CYAN),
+            ("csv", "CSV", GREEN),
+            ("xlsx", "EXCEL", PURPLE)
+        ]
+        
+        for fmt, lbl_text, color in export_formats:
+            btn_export = ctk.CTkButton(
+                eg, text=lbl_text, 
+                fg_color="transparent",
+                hover_color=color, 
+                font=("Segoe UI", 11, "bold"),
+                text_color=color, 
+                corner_radius=8, 
+                height=32, 
+                width=60,
+                border_width=1,
+                border_color=color,
+                command=lambda f=fmt: self.export_results(w, f)
+            )
+            btn_export.pack(side="left", padx=3, pady=4)
             export_buttons.append(btn_export)
 
         btn_balance = ctk.CTkButton(eg, text="$", fg_color="transparent",
