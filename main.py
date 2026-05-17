@@ -23,8 +23,8 @@ except ImportError:
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-# Установлена актуальная версия v1.0.84 - Fix API errors routing
-APP_VERSION = "1.0.84"
+# Установлена актуальная версия v1.0.85 - Exchange API Checker + Export
+APP_VERSION = "1.0.85"
 
 if platform.system() == "Windows":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -778,6 +778,16 @@ class MultiCheckerApp(ctk.CTk):
                        command=lambda: self.export_auth_accounts(w))
         btn_auth.pack(side="left", padx=2, pady=4)
         export_buttons.append(btn_auth)
+
+        # v1.0.85: Кнопка экспорта биржевых аккаунтов (API ключи с балансом)
+        if tab_name == "Crypto":
+            btn_cex = ctk.CTkButton(eg, text="🏦 CEX", fg_color="transparent",
+                           hover_color=HOVER, font=("Segoe UI", 11, "bold"),
+                           text_color=CYAN, corner_radius=6, height=30, width=60,
+                           command=lambda: self.export_exchange_accounts(w))
+            btn_cex.pack(side="left", padx=2, pady=4)
+            export_buttons.append(btn_cex)
+            create_tooltip(btn_cex, "Экспорт биржевых аккаунтов с API ключами и балансами (TXT/CSV/JSON)")
         
         # Кнопка экспорта ВСЕХ ключей (даже с $0) - только для Crypto
         if tab_name == "Crypto":
@@ -1367,7 +1377,62 @@ class MultiCheckerApp(ctk.CTk):
         
         except Exception as e:
             self.log(w, f"❌ Ошибка экспорта: {e}")
-    
+
+    def export_exchange_accounts(self, w):
+        """v1.0.85: Экспорт биржевых аккаунтов с API ключами и балансами"""
+        from checkers.exchange_checker import global_exchange_exporter
+
+        accounts = global_exchange_exporter.accounts
+        if not accounts:
+            self.log(w, "❌ Биржевые аккаунты с API ключами не найдены.")
+            self.log(w, "   Загрузите файл с форматом: binance:API_KEY:SECRET_KEY")
+            self.log(w, "   Или: okx:API_KEY:SECRET_KEY:PASSPHRASE")
+            return
+
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        total_usd = sum(a["total_usd"] for a in accounts)
+
+        self.log(w, f"🏦 Найдено биржевых аккаунтов: {len(accounts)}")
+        self.log(w, f"   💰 Суммарный баланс: ~${total_usd:,.2f}")
+        self.log(w, global_exchange_exporter.summary())
+
+        try:
+            # TXT — детальный отчёт
+            fn_txt = f"exchange_accounts_{ts}.txt"
+            cnt = global_exchange_exporter.export_txt(fn_txt, min_usd=0.0)
+            self.log(w, f"✅ TXT ({cnt} аккаунтов): {fn_txt}")
+
+            # CSV — для Excel
+            fn_csv = f"exchange_accounts_{ts}.csv"
+            cnt = global_exchange_exporter.export_csv(fn_csv, min_usd=0.0)
+            self.log(w, f"✅ CSV ({cnt} аккаунтов): {fn_csv}")
+
+            # JSON — полные данные
+            fn_json = f"exchange_accounts_{ts}.json"
+            cnt = global_exchange_exporter.export_json(fn_json, min_usd=0.0)
+            self.log(w, f"✅ JSON ({cnt} аккаунтов): {fn_json}")
+
+            # TXT только с балансом > $0
+            with_balance = [a for a in accounts if a["total_usd"] > 0]
+            if with_balance:
+                fn_bal = f"exchange_with_balance_{ts}.txt"
+                cnt = global_exchange_exporter.export_txt(fn_bal, min_usd=0.01)
+                self.log(w, f"✅ С балансом ({cnt} аккаунтов): {fn_bal}")
+
+            self.log(w, "=" * 50)
+            self.log(w, "📊 ПО БИРЖАМ:")
+            by_ex: dict = {}
+            for a in accounts:
+                ex = a["exchange"]
+                by_ex.setdefault(ex, {"count": 0, "usd": 0.0})
+                by_ex[ex]["count"] += 1
+                by_ex[ex]["usd"] += a["total_usd"]
+            for ex, d in sorted(by_ex.items(), key=lambda x: -x[1]["usd"]):
+                self.log(w, f"   • {ex}: {d['count']} аккаунтов | ~${d['usd']:,.2f}")
+            self.log(w, "=" * 50)
+
+        except Exception as e:
+            self.log(w, f"❌ Ошибка экспорта: {e}")
     def find_ultimate_accounts(self, w):
         """Найти аккаунты с seed/privkey И балансом (Ultimate Finder)"""
         if not self.all_results:

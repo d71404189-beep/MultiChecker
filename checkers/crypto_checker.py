@@ -38,6 +38,8 @@ from checkers.performance_optimizer import (
     rate_limited,
     timed
 )
+# v1.0.85: Exchange API checker
+from checkers.exchange_checker import detect_api_format, check_exchange_api, global_exchange_exporter
 
 _WALLET_PATTERNS = [
     ("bitcoin",   re.compile(r'^(bc1|[13])[a-zA-HJ-NP-Z0-9]{25,62}$')),
@@ -470,6 +472,19 @@ class CryptoChecker(BaseChecker):
 
         exchange_api = self._detect_exchange_api(data)
         if exchange_api: return self._make_exchange_api_result(data, exchange_api)
+
+        # v1.0.85: Проверка формата exchange:api_key:api_secret[:passphrase]
+        api_fmt = detect_api_format(data)
+        if api_fmt:
+            exchange, api_key, api_secret, passphrase = api_fmt
+            result = await check_exchange_api(
+                exchange, api_key, api_secret, passphrase,
+                session=session, timeout=timeout
+            )
+            # Сохраняем в экспортер если валидный
+            if result.get("valid"):
+                global_exchange_exporter.add(result)
+            return result
 
         result = self.make_result(input=data, type="unknown")
         result["info"]["error"] = "Unknown crypto format"
