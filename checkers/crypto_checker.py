@@ -1071,69 +1071,79 @@ class CryptoChecker(BaseChecker):
             return None
 
     def _parse_credentials(self, data):
-        """Парсинг credentials из различных форматов"""
+        """
+        Универсальный парсер credentials.
+        Поддерживаемые форматы:
+          1. https://site.com:login:pass
+          2. https://site.com/path:login:pass
+          3. site.com:login:pass
+          4. site.com/path:login:pass
+          5. site.com/:login:pass  (слэш перед логином)
+          6. login:pass  (email:password)
+          7. exchange:login:pass  (первый токен — название биржи без @ и .)
+          8. login:pass:extra  (берём первые два значимых токена)
+        """
         try:
+            # Нормализуем разделители
             s = data.strip().replace("|", ":")
-            
-            # НОВОЕ: Специальная обработка url:mail:pass формата
-            url_pattern = re.compile(r'^(https?://[^\s:]+):')
-            url_match = url_pattern.match(s)
-            
-            if url_match:
-                # Формат: url:mail:pass
-                url = url_match.group(1)
-                remaining = s[len(url) + 1:]  # +1 для двоеточия
-                
-                # Парсим оставшуюся часть как mail:pass
-                parts = remaining.split(':', 1)  # Максимум 2 части
-                
-                if len(parts) >= 2:
-                    login = parts[0].strip()
-                    password = parts[1].strip()
+
+            # ── 1. Формат с протоколом: https://... или http://...
+            if s.startswith(("https://", "http://")):
+                proto_end = s.index("://") + 3
+                colon_pos = s.find(":", proto_end)
+                if colon_pos == -1:
+                    return ("", "")
+                after_url = s[colon_pos + 1:].lstrip("/")
+                # after_url = "login:pass" или "login:pass:extra"
+                # Берём login как первый токен, pass — всё остальное до следующего ":"
+                parts = after_url.split(":", 1)
+                login = parts[0].strip()
+                password = parts[1].strip() if len(parts) > 1 else ""
+                if login:
                     return (login, password)
-                elif len(parts) == 1 and parts[0].strip():
-                    # Есть только login после URL
-                    return (parts[0].strip(), "")
-                else:
-                    # После URL ничего нет - это просто URL без credentials
+                return ("", "")
+
+            # ── 2. Формат без протокола: site.com:... или site.com/path:...
+            first_colon = s.find(":")
+            if first_colon > 0:
+                possible_domain = s[:first_colon]
+                # Домен содержит точку и не содержит @
+                if "." in possible_domain and "@" not in possible_domain:
+                    after_domain = s[first_colon + 1:].lstrip("/")
+                    # Разбиваем на login и password
+                    # Если login содержит @, то это email — берём его целиком, pass — остаток
+                    # Если login не содержит @, то берём первый токен как login, второй как pass
+                    parts = after_domain.split(":", 1)
+                    login = parts[0].strip()
+                    password = parts[1].strip() if len(parts) > 1 else ""
+
+                    # Если пароль содержит "." и не содержит "@" — возможно это ещё один домен
+                    # Но мы уже взяли login:pass, так что просто возвращаем
+                    if login:
+                        return (login, password)
                     return ("", "")
-            
-            # ИСПРАВЛЕНО: Проверяем что это не просто URL без credentials
-            # Если строка начинается с http:// или https:// и не содержит @ после протокола
-            if s.startswith(("http://", "https://")):
-                # Проверяем есть ли email после URL
-                # Формат должен быть: http://site.com:email@domain.com:password
-                # Если нет @ после протокола, это просто URL
-                protocol_end = s.find("://") + 3
-                rest_of_url = s[protocol_end:]
-                
-                # Если в оставшейся части нет @, это просто URL
-                if "@" not in rest_of_url:
-                    return ("", "")
-            
-            # СТАНДАРТНАЯ ОБРАБОТКА: email:password или exchange:login:password
+
+            # ── 3. Стандартные форматы без домена
             tokens = [t.strip() for t in s.split(":") if t.strip()]
-            
-            # Если 3 токена и первый - название биржи (не содержит @ и .)
-            if len(tokens) == 3 and "@" not in tokens[0] and "." not in tokens[0]:
-                # Формат: exchange:login:password
-                # Пропускаем первый токен (название биржи)
+
+            if not tokens:
+                return ("", "")
+
+            # Формат: exchange:login:pass  (первый токен — слово без @ и .)
+            if len(tokens) >= 3 and "@" not in tokens[0] and "." not in tokens[0]:
                 return (tokens[1], tokens[2])
-            
-            # Если 2 токена
-            if len(tokens) == 2:
-                # Формат: email:password или login:password
+
+            # Формат: login:pass
+            if len(tokens) >= 2:
                 return (tokens[0], tokens[1])
-            
-            # Если 1 токен и это email
+
+            # Только login (email)
             if len(tokens) == 1 and "@" in tokens[0]:
-                # Формат: только email
                 return (tokens[0], "")
-            
-            # Иначе - нет credentials
+
             return ("", "")
+
         except Exception as e:
-            # Логируем ошибку но не падаем
             print(f"⚠️ Error in _parse_credentials: {e}")
             return ("", "")
 
