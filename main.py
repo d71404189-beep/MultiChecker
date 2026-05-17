@@ -23,8 +23,8 @@ except ImportError:
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-# Установлена актуальная версия v1.0.86 - Smart Dump Crypto Checker
-APP_VERSION = "1.0.86"
+# Установлена актуальная версия v1.0.87 - Critical improvements
+APP_VERSION = "1.0.87"
 
 if platform.system() == "Windows":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())

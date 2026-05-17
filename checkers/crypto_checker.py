@@ -40,6 +40,13 @@ from checkers.performance_optimizer import (
 )
 # v1.0.85: Exchange API checker
 from checkers.exchange_checker import detect_api_format, check_exchange_api, global_exchange_exporter
+# v1.0.87: API utils — retry, реальный airdrop, расширенные SPL токены, валидация Solana
+from checkers.api_utils import (
+    fetch_with_retry,
+    check_airdrop_eligibility,
+    fetch_spl_tokens_extended,
+    is_valid_solana_address,
+)
 
 _WALLET_PATTERNS = [
     ("bitcoin",   re.compile(r'^(bc1|[13])[a-zA-HJ-NP-Z0-9]{25,62}$')),
@@ -576,12 +583,8 @@ class CryptoChecker(BaseChecker):
         return ""
 
     async def _check_airdrop_eligibility(self, address, timeout, proxy, session):
-        try:
-            hashed = int(hashlib.md5(address.lower().encode()).hexdigest(), 16)
-            if hashed % 47 == 0:
-                return f" | [Airdrop: Доступно {(hashed % 450) + 50} токенов]"
-        except Exception: pass
-        return ""
+        # v1.0.87: Реальная проверка через публичные API
+        return await check_airdrop_eligibility(address, timeout, proxy, session)
 
     async def _check_seed(self, phrase, timeout, proxy, session):
         """
@@ -1037,7 +1040,12 @@ class CryptoChecker(BaseChecker):
         s = data.strip()
         if not s or s[0] not in _WALLET_FIRST_CHARS: return None
         for wallet_type, pattern in _WALLET_PATTERNS:
-            if pattern.match(s): return wallet_type
+            if pattern.match(s):
+                # v1.0.87: Дополнительная строгая валидация для Solana
+                # чтобы избежать ложных срабатываний на TON/BTC/другие адреса
+                if wallet_type == "solana" and not is_valid_solana_address(s):
+                    continue
+                return wallet_type
         return None
 
     def _detect_exchange(self, data):
@@ -1169,24 +1177,27 @@ class CryptoChecker(BaseChecker):
         api_errors = []
 
         for api_name, url, fmt in [
-            ("mempool.space",   f"https://mempool.space/api/address/{address}",                          "json"),
-            ("blockchain.info", f"https://blockchain.info/q/addressbalance/{address}",                   "text"),
-            ("blockstream",     f"https://blockstream.info/api/address/{address}",                       "json"),
-            ("btcscan",         f"https://btcscan.org/api/address/{address}",                            "json"),
+            ("mempool.space",   f"https://mempool.space/api/address/{address}",        "json"),
+            ("blockstream",     f"https://blockstream.info/api/address/{address}",     "json"),
+            ("blockchain.info", f"https://blockchain.info/q/addressbalance/{address}", "text"),
+            ("btcscan",         f"https://btcscan.org/api/address/{address}",          "json"),
         ]:
             try:
-                resp = await self.fetch(session, "GET", url, timeout=timeout, proxy=proxy)
+                # v1.0.87: retry с exponential backoff
+                resp = await fetch_with_retry(
+                    session, "GET", url,
+                    timeout=timeout, proxy=proxy,
+                    retries=3, base_delay=1.0
+                )
 
-                if resp.status == 200:
+                if resp and resp.status == 200:
                     if fmt == "text":
                         text = (await resp.text()).strip()
                         balance = int(text) / 1e8 if text.lstrip("-").isdigit() else 0
-                        tx_count = 0
                     else:
-                        d = await resp.json(); resp.close()
+                        d = await resp.json()
                         cs = d.get("chain_stats", {})
                         balance = (cs.get("funded_txo_sum", 0) - cs.get("spent_txo_sum", 0)) / 1e8
-                        tx_count = cs.get("tx_count", 0)
 
                     result["info"]["balance_btc"] = balance
                     result["exists"] = balance > 0
@@ -1198,24 +1209,20 @@ class CryptoChecker(BaseChecker):
 
                     result["info"]["message"] = f"Balance: {formatted_balance}" + (" (empty)" if not result["exists"] else "") + whale + ord_msg
                     return result
-                elif resp.status == 429:
-                    api_errors.append(f"{api_name}: Rate limit (429)")
-                elif resp.status == 403:
-                    api_errors.append(f"{api_name}: Forbidden (403)")
-                else:
+                elif resp:
                     api_errors.append(f"{api_name}: HTTP {resp.status}")
-                resp.close()
+                    await resp.release()
+                else:
+                    api_errors.append(f"{api_name}: No response")
             except asyncio.TimeoutError:
                 api_errors.append(f"{api_name}: Timeout")
             except Exception as e:
                 api_errors.append(f"{api_name}: {type(e).__name__}")
 
-        # Все API недоступны — показываем адрес как валидный, но без баланса
         result["info"]["balance_btc"] = None
         result["info"]["api_errors"] = api_errors
         result["info"]["message"] = f"⚠️ Не удалось проверить баланс BTC ({'; '.join(api_errors[:2])})"
         result["info"]["recommendation"] = "💡 Используйте прокси или попробуйте позже"
-        # НЕ ставим error — чтобы не попадало в красный список
         return result
 
     async def _check_ethereum(self, address, timeout, proxy, session):
@@ -1538,26 +1545,28 @@ class CryptoChecker(BaseChecker):
     async def _check_tron(self, address, timeout, proxy, session):
         result = self.make_result(input=address, type="wallet", wallet_type="tron", valid=True)
         prices = await self._get_prices(session, timeout)
-        
-        api_errors = []  # Собираем ошибки для диагностики
-        
-        # Пробуем несколько API
+
+        api_errors = []
+
         apis = [
-            ("tronscan", f"https://apilist.tronscanapi.com/api/accountv2?address={address}"),
-            ("trongrid", f"https://api.trongrid.io/v1/accounts/{address}"),
+            ("tronscan", f"https://apilist.tronscanapi.com/api/accountv2?address={address}", "tronscan"),
+            ("trongrid",  f"https://api.trongrid.io/v1/accounts/{address}",                  "trongrid"),
         ]
-        
-        for api_name, url in apis:
+
+        for api_name, url, fmt in apis:
             try:
-                resp = await self.fetch(session, "GET", url, timeout=timeout, proxy=proxy)
-                
-                if resp.status == 200:
-                    d = await resp.json(); resp.close()
-                    
-                    # Парсинг для разных API
-                    if api_name == "tronscan":
+                # v1.0.87: retry с exponential backoff
+                resp = await fetch_with_retry(
+                    session, "GET", url,
+                    timeout=timeout, proxy=proxy,
+                    retries=3, base_delay=1.0
+                )
+
+                if resp and resp.status == 200:
+                    d = await resp.json()
+
+                    if fmt == "tronscan":
                         balance = d.get("balance", 0) / 1e6
-                        
                         trc20 = {}
                         for t in d.get("trc20token_balances", []):
                             abbr = t.get("tokenAbbr", "").upper()
@@ -1570,133 +1579,113 @@ class CryptoChecker(BaseChecker):
                             except (ValueError, TypeError):
                                 dec = 6
                             if b_raw > 0 and abbr:
-                                trc20[abbr] = b_raw / (10**dec)
+                                trc20[abbr] = b_raw / (10 ** dec)
                     else:  # trongrid
-                        balance = d.get("data", [{}])[0].get("balance", 0) / 1e6 if d.get("data") else 0
-                        trc20 = {}  # TRC20 требует отдельный запрос
+                        data_list = d.get("data", [])
+                        balance = data_list[0].get("balance", 0) / 1e6 if data_list else 0
+                        trc20 = {}
 
                     result["info"].update({"balance_trx": balance, "tokens": trc20})
                     result["exists"] = balance > 0 or bool(trc20)
-                    
-                    # v1.0.57: Используем BalanceFormatter для читаемого отображения
+
                     trx_price = prices.get("tron", {}).get("price", 0) if isinstance(prices.get("tron"), dict) else prices.get("tron", 0)
                     formatted_balance = BalanceFormatter.format_balance_with_emoji(balance, "TRX", trx_price)
-                    
+
                     msg = f"Balance: {formatted_balance}"
                     if trc20:
-                        # Форматируем TRC20 токены
                         token_parts = []
                         for symbol, amount in list(trc20.items())[:5]:
-                            # Для USDT используем цену $1
-                            token_price = 1.0 if symbol == "USDT" else 0
+                            token_price = 1.0 if symbol in ("USDT", "USDC") else 0
                             formatted_token = BalanceFormatter.format_balance(amount, symbol, True, token_price)
                             token_parts.append(formatted_token)
                         msg += " | TRC20: " + ", ".join(token_parts)
                         if len(trc20) > 5:
-                            msg += f" + еще {len(trc20) - 5}"
-                    if not result["exists"]: msg += " (empty)"
+                            msg += f" +{len(trc20)-5} ещё"
+                    if not result["exists"]:
+                        msg += " (empty)"
                     result["info"]["message"] = msg
                     return result
-                elif resp.status == 429:
-                    api_errors.append(f"{api_name}: Rate limit (429)")
-                elif resp.status == 403:
-                    api_errors.append(f"{api_name}: Access forbidden (403)")
-                else:
+                elif resp:
                     api_errors.append(f"{api_name}: HTTP {resp.status}")
-                    resp.close()
+                    await resp.release()
+                else:
+                    api_errors.append(f"{api_name}: No response")
             except asyncio.TimeoutError:
                 api_errors.append(f"{api_name}: Timeout")
             except Exception as e:
                 api_errors.append(f"{api_name}: {type(e).__name__}")
-        
-        # Формируем информативное сообщение об ошибке
+
         result["info"]["api_error"] = "⚠️ Не удалось проверить баланс TRX"
         result["info"]["api_errors"] = api_errors
-        result["info"]["message"] = "❌ TRX API недоступны | " + " | ".join(api_errors[:2])
-        result["info"]["recommendation"] = "💡 Используйте прокси или попробуйте позже (rate limit)"
-        
+        result["info"]["message"] = f"⚠️ TRX API недоступны ({'; '.join(api_errors[:2])})"
+        result["info"]["recommendation"] = "💡 Используйте прокси или попробуйте позже"
         return result
 
     async def _check_solana(self, address, timeout, proxy, session):
         result = self.make_result(input=address, type="wallet", wallet_type="solana", valid=True)
         prices = await self._get_prices(session, timeout)
-        
-        api_errors = []  # Собираем ошибки для диагностики
-        
+
+        api_errors = []
+
         for api_name, url in [
             ("mainnet-beta", "https://api.mainnet-beta.solana.com"),
-            ("projectserum", "https://solana-api.projectserum.com")
+            ("projectserum", "https://solana-api.projectserum.com"),
         ]:
             try:
-                p = {"jsonrpc":"2.0","id":1,"method":"getBalance","params":[address]}
-                resp = await self.fetch(session, "POST", url, timeout=timeout, proxy=proxy, json=p, headers={"Content-Type":"application/json"})
-                
-                if resp.status == 200:
-                    d = await resp.json(); resp.close()
+                p = {"jsonrpc": "2.0", "id": 1, "method": "getBalance", "params": [address]}
+                # v1.0.87: retry с exponential backoff
+                resp = await fetch_with_retry(
+                    session, "POST", url,
+                    timeout=timeout, proxy=proxy,
+                    json=p, headers={"Content-Type": "application/json"},
+                    retries=3, base_delay=1.0
+                )
+
+                if resp and resp.status == 200:
+                    d = await resp.json()
                     if "result" in d:
                         balance = d["result"]["value"] / 1e9
-                        result["info"]["balance_sol"] = balance; result["exists"] = balance > 0
-                        
-                        # v1.0.57: Используем BalanceFormatter для читаемого отображения
+                        result["info"]["balance_sol"] = balance
+                        result["exists"] = balance > 0
+
                         sol_price = prices.get("solana", {}).get("price", 0) if isinstance(prices.get("solana"), dict) else prices.get("solana", 0)
                         formatted_balance = BalanceFormatter.format_balance_with_emoji(balance, "SOL", sol_price)
-                        
-                        msg = f"Balance: {formatted_balance}"
 
+                        msg = f"Balance: {formatted_balance}"
                         spl = await self._check_spl_tokens(address, timeout, proxy, session)
                         if spl:
-                            result["info"]["spl_tokens"] = spl; result["exists"] = True
-                            msg += " | SPL Токены: " + ", ".join(f"{v} {k}" for k, v in spl.items())
-                        
-                        if not result["exists"]: msg += " (empty)"
-                        result["info"]["message"] = msg; return result
-                    resp.close()
-                elif resp.status == 429:
-                    api_errors.append(f"{api_name}: Rate limit (429)")
-                elif resp.status == 403:
-                    api_errors.append(f"{api_name}: Access forbidden (403)")
-                else:
+                            result["info"]["spl_tokens"] = spl
+                            result["exists"] = True
+                            # Показываем топ-5 токенов, остальные суммируем
+                            top = sorted(spl.items(), key=lambda x: -x[1])[:5]
+                            spl_str = ", ".join(f"{v} {k}" for k, v in top)
+                            if len(spl) > 5:
+                                spl_str += f" +{len(spl)-5} ещё"
+                            msg += f" | SPL: {spl_str}"
+
+                        if not result["exists"]:
+                            msg += " (empty)"
+                        result["info"]["message"] = msg
+                        return result
+                elif resp:
                     api_errors.append(f"{api_name}: HTTP {resp.status}")
-                    resp.close()
+                    await resp.release()
+                else:
+                    api_errors.append(f"{api_name}: No response")
             except asyncio.TimeoutError:
                 api_errors.append(f"{api_name}: Timeout")
             except Exception as e:
                 api_errors.append(f"{api_name}: {type(e).__name__}")
-        
-        # Формируем информативное сообщение об ошибке
+
         result["info"]["api_error"] = "⚠️ Не удалось проверить баланс SOL"
         result["info"]["api_errors"] = api_errors
-        result["info"]["message"] = "❌ SOL API недоступны | " + " | ".join(api_errors[:2])
-        result["info"]["recommendation"] = "💡 Используйте прокси или попробуйте позже (rate limit)"
-        
+        result["info"]["message"] = f"⚠️ SOL API недоступны ({'; '.join(api_errors[:2])})"
+        result["info"]["recommendation"] = "💡 Используйте прокси или попробуйте позже"
         return result
 
     async def _check_spl_tokens(self, address, timeout, proxy, session):
-        tokens = {}
-        known_mints = {
-            "EPjFW3dpEqEU2o194Kzk9GwZ99Q11111111111111111": "USDC",
-            "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11111111111111": "USDT",
-            "So11111111111111111111111111111111111111112": "wSOL",
-            "EKpQGSJtjMFqBBm9938CgX9uw96S67beBU8vA5w3pump": "WIF",
-            "DezXAZ8z7PnrFcEDUsPR4oFc8C8cH1m1JitEX62G16nn": "BONK"
-        }
-        try:
-            p = {"jsonrpc": "2.0", "id": 1, "method": "getTokenAccountsByOwner", "params": [address, {"programId": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"}, {"encoding": "jsonParsed"}]}
-            resp = await self.fetch(session, "POST", "https://api.mainnet-beta.solana.com", timeout=timeout, proxy=proxy, json=p, headers={"Content-Type": "application/json"})
-            if resp.status == 200:
-                d = await resp.json(); resp.close()
-                if "result" in d and d["result"].get("value"):
-                    for acc in d["result"]["value"]:
-                        parsed = acc.get("account", {}).get("data", {}).get("parsed", {})
-                        info = parsed.get("info", {})
-                        amt = float(info.get("tokenAmount", {}).get("uiAmount", 0) or 0)
-                        mint = info.get("mint", "")
-                        if amt > 0 and mint:
-                            ticker = known_mints.get(mint, mint[:5] + "...")
-                            tokens[ticker] = round(amt, 4)
-            else: resp.close()
-        except Exception: pass
-        return tokens
+        # v1.0.87: Расширенный список (50+ токенов) + retry логика
+        return await fetch_spl_tokens_extended(address, timeout, proxy, session)
 
     async def _check_ton(self, address, timeout, proxy, session):
         result = self.make_result(input=address, type="wallet", wallet_type="ton", valid=True)
