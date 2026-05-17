@@ -23,8 +23,8 @@ except ImportError:
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-# Установлена актуальная версия v1.0.66
-APP_VERSION = "1.0.66"
+# Установлена актуальная версия v1.0.67
+APP_VERSION = "1.0.67"
 
 if platform.system() == "Windows":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -35,6 +35,7 @@ from checkers.crypto_checker import CryptoChecker
 from checkers.game_checker import GameChecker
 from checkers.ai_checker import AIChecker
 from checkers.balance_formatter import BalanceFormatter, LogColorizer, BalanceHighlighter
+from checkers.dump_parser import DumpParser
 import i18n
 
 ctk.set_appearance_mode("dark")
@@ -67,6 +68,87 @@ TAB_META = {
     "Games":  ("◉", "games"),
     "AI":     ("◆", "ai"),
 }
+
+
+class ToolTip:
+    """Всплывающая подсказка для виджетов"""
+    
+    def __init__(self, widget, text, delay=500):
+        self.widget = widget
+        self.text = text
+        self.delay = delay
+        self.tooltip_window = None
+        self.after_id = None
+        
+        # Биндим события
+        self.widget.bind("<Enter>", self.on_enter)
+        self.widget.bind("<Leave>", self.on_leave)
+        self.widget.bind("<Button>", self.on_leave)
+    
+    def on_enter(self, event=None):
+        """Мышь вошла в область виджета"""
+        self.schedule_tooltip()
+    
+    def on_leave(self, event=None):
+        """Мышь вышла из области виджета"""
+        self.cancel_tooltip()
+        self.hide_tooltip()
+    
+    def schedule_tooltip(self):
+        """Запланировать показ подсказки"""
+        self.cancel_tooltip()
+        self.after_id = self.widget.after(self.delay, self.show_tooltip)
+    
+    def cancel_tooltip(self):
+        """Отменить показ подсказки"""
+        if self.after_id:
+            self.widget.after_cancel(self.after_id)
+            self.after_id = None
+    
+    def show_tooltip(self):
+        """Показать подсказку"""
+        if self.tooltip_window:
+            return
+        
+        # Получаем позицию виджета
+        x = self.widget.winfo_rootx() + 20
+        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 5
+        
+        # Создаем окно подсказки
+        self.tooltip_window = ctk.CTkToplevel(self.widget)
+        self.tooltip_window.wm_overrideredirect(True)
+        self.tooltip_window.wm_geometry(f"+{x}+{y}")
+        
+        # Создаем фрейм с текстом
+        frame = ctk.CTkFrame(
+            self.tooltip_window,
+            fg_color="#1c2128",
+            border_color="#58a6ff",
+            border_width=1,
+            corner_radius=6
+        )
+        frame.pack()
+        
+        label = ctk.CTkLabel(
+            frame,
+            text=self.text,
+            font=("Segoe UI", 11),
+            text_color="#e6edf3",
+            padx=10,
+            pady=6
+        )
+        label.pack()
+    
+    def hide_tooltip(self):
+        """Скрыть подсказку"""
+        if self.tooltip_window:
+            self.tooltip_window.destroy()
+            self.tooltip_window = None
+
+
+def create_tooltip(widget, text, delay=500):
+    """Создать всплывающую подсказку для виджета"""
+    return ToolTip(widget, text, delay)
 
 
 class MultiCheckerApp(ctk.CTk):
@@ -484,46 +566,77 @@ class MultiCheckerApp(ctk.CTk):
         btn(bf, "↑  Файл",    CARD,   HOVER, lambda: self.import_file(w), 110).pack(side="left", padx=(0,6))
         btn(bf, "\U0001f4cb",  CARD,   HOVER, lambda: self._paste_clipboard(w), 42).pack(side="left", padx=(0,6))
         btn(bf, "⊘  Дубли",   "#6e40c9", "#5a32a3", lambda: self.remove_duplicates(w), 110).pack(side="left", padx=(0,6))
+        btn(bf, "📋 ДАМП",    ORANGE, "#d67d3e", lambda: self.parse_dump(w), 110).pack(side="left", padx=(0,6))
+        
+        # Добавляем tooltips для кнопок
+        create_tooltip(bf.winfo_children()[0], "Запустить проверку данных")
+        create_tooltip(bf.winfo_children()[1], "Остановить текущую проверку")
+        create_tooltip(bf.winfo_children()[2], "Очистить поле вывода")
+        create_tooltip(bf.winfo_children()[3], "Загрузить данные из файла")
+        create_tooltip(bf.winfo_children()[4], "Вставить из буфера обмена (Ctrl+V)")
+        create_tooltip(bf.winfo_children()[5], "Удалить дубликаты из списка")
+        create_tooltip(bf.winfo_children()[6], "Парсить дамп (email:pass:seed, user|pass|key и т.д.)")
 
         eg = ctk.CTkFrame(bf, fg_color=CARD, corner_radius=8)
         eg.pack(side="left", padx=(8, 0))
         ctk.CTkLabel(eg, text="Экспорт:", font=("Segoe UI", 11),
                      text_color=MUTED).pack(side="left", padx=(10, 4))
+        
+        # Кнопки экспорта с сохранением ссылок для tooltips
+        export_buttons = []
+        
         for fmt, lbl_text in [("txt","TXT"),("json","JSON"),("csv","CSV"),("xlsx","EXCEL")]:
-            ctk.CTkButton(eg, text=lbl_text, fg_color="transparent",
+            btn_export = ctk.CTkButton(eg, text=lbl_text, fg_color="transparent",
                            hover_color=HOVER, font=("Segoe UI", 11, "bold"),
                            text_color=ACCENT, corner_radius=6, height=30, width=54,
-                           command=lambda f=fmt: self.export_results(w, f)
-                           ).pack(side="left", padx=2, pady=4)
+                           command=lambda f=fmt: self.export_results(w, f))
+            btn_export.pack(side="left", padx=2, pady=4)
+            export_buttons.append(btn_export)
 
-        ctk.CTkButton(eg, text="$", fg_color="transparent",
+        btn_balance = ctk.CTkButton(eg, text="$", fg_color="transparent",
                        hover_color=HOVER, font=("Segoe UI", 11, "bold"),
                        text_color=GREEN, corner_radius=6, height=30, width=36,
-                       command=lambda: self.export_balance_only(w)
-                       ).pack(side="left", padx=2, pady=4)
+                       command=lambda: self.export_balance_only(w))
+        btn_balance.pack(side="left", padx=2, pady=4)
+        export_buttons.append(btn_balance)
         
         # Кнопки ручного раздельного сохранения Сид-фраз и Приватных ключей
-        ctk.CTkButton(eg, text="🌱 SEED", fg_color="transparent",
+        btn_seed = ctk.CTkButton(eg, text="🌱 SEED", fg_color="transparent",
                        hover_color=HOVER, font=("Segoe UI", 11, "bold"),
                        text_color=PURPLE, corner_radius=6, height=30, width=64,
-                       command=lambda: self.export_by_type(w, "seed")
-                       ).pack(side="left", padx=2, pady=4)
+                       command=lambda: self.export_by_type(w, "seed"))
+        btn_seed.pack(side="left", padx=2, pady=4)
+        export_buttons.append(btn_seed)
 
-        ctk.CTkButton(eg, text="🔑 KEY", fg_color="transparent",
+        btn_key = ctk.CTkButton(eg, text="🔑 KEY", fg_color="transparent",
                        hover_color=HOVER, font=("Segoe UI", 11, "bold"),
                        text_color=ORANGE, corner_radius=6, height=30, width=60,
-                       command=lambda: self.export_by_type(w, "privkey")
-                       ).pack(side="left", padx=2, pady=4)
+                       command=lambda: self.export_by_type(w, "privkey"))
+        btn_key.pack(side="left", padx=2, pady=4)
+        export_buttons.append(btn_key)
         
         # Кнопка экспорта аккаунтов с возможностью авторизации
-        ctk.CTkButton(eg, text="🔐 AUTH", fg_color="transparent",
+        btn_auth = ctk.CTkButton(eg, text="🔐 AUTH", fg_color="transparent",
                        hover_color=HOVER, font=("Segoe UI", 11, "bold"),
                        text_color="#3fb950", corner_radius=6, height=30, width=64,
-                       command=lambda: self.export_auth_accounts(w)
-                       ).pack(side="left", padx=2, pady=4)
+                       command=lambda: self.export_auth_accounts(w))
+        btn_auth.pack(side="left", padx=2, pady=4)
+        export_buttons.append(btn_auth)
+        
+        # Добавляем tooltips для кнопок экспорта
+        create_tooltip(export_buttons[0], "Экспорт результатов в TXT файл")
+        create_tooltip(export_buttons[1], "Экспорт результатов в JSON файл")
+        create_tooltip(export_buttons[2], "Экспорт результатов в CSV файл")
+        create_tooltip(export_buttons[3], "Экспорт результатов в Excel файл")
+        create_tooltip(export_buttons[4], "Экспорт только аккаунтов с балансом")
+        create_tooltip(export_buttons[5], "Экспорт только seed фраз")
+        create_tooltip(export_buttons[6], "Экспорт только приватных ключей")
+        create_tooltip(export_buttons[7], "Экспорт аккаунтов с auth данными (seed/privkey/email:pass)")
 
-        btn(bf, "◈  Стат", PURPLE, "#a371f7",
-            lambda: self.show_stats(tab_name), 110).pack(side="right")
+        btn_stats = btn(bf, "◈  Стат", PURPLE, "#a371f7",
+            lambda: self.show_stats(tab_name), 110)
+        btn_stats.pack(side="right")
+        create_tooltip(btn_stats, "Показать детальную статистику проверки")
 
         cr = ctk.CTkFrame(body, fg_color="transparent")
         cr.grid(row=5 if tab_name == "Crypto" else 3, column=0, padx=16, pady=6, sticky="ew")
@@ -1078,6 +1191,58 @@ class MultiCheckerApp(ctk.CTk):
             self.log(w, i18n.t("dedup_result").format(dupes, len(uniq)))
         else:
             self.log(w, i18n.t("dedup_no_dupes").format(orig))
+    
+    def parse_dump(self, w):
+        """Парсит дамп и извлекает данные для проверки"""
+        txt = w["input"].get("1.0", "end").strip()
+        if not txt:
+            self.log(w, "❌ Нет данных для парсинга")
+            return
+        
+        self.log(w, "🔄 Парсинг дампа...")
+        
+        try:
+            parser = DumpParser()
+            parsed_data = parser.parse_dump(txt)
+            
+            if not parsed_data:
+                self.log(w, "❌ Не удалось распарсить данные")
+                return
+            
+            # Извлекаем данные для чекера
+            for_checker = parser.extract_for_checker(parsed_data)
+            
+            if not for_checker:
+                self.log(w, "❌ Не найдено данных для проверки (seed/privkey/address)")
+                return
+            
+            # Обновляем поле ввода
+            tab = self._tab_of(w)
+            self._loaded_data[tab] = for_checker
+            w["input"].delete("1.0", "end")
+            
+            total = len(for_checker)
+            if total <= _TEXTBOX_DISPLAY_LIMIT:
+                w["input"].insert("1.0", "\n".join(for_checker))
+            else:
+                w["input"].insert("1.0",
+                    "\n".join(for_checker[:_TEXTBOX_DISPLAY_LIMIT]) +
+                    f"\n\n... [{total - _TEXTBOX_DISPLAY_LIMIT} строк ещё] ...")
+            
+            # Показываем статистику
+            stats = parser.get_stats()
+            self.log(w, "✅ Дамп распарсен успешно!")
+            self.log(w, f"📊 Всего строк: {stats['total_lines']}")
+            self.log(w, f"✅ Распарсено: {stats['parsed_lines']}")
+            self.log(w, f"❌ Не удалось: {stats['failed_lines']}")
+            self.log(w, f"🌱 Найдено seed: {stats['found_seeds']}")
+            self.log(w, f"🔑 Найдено privkey: {stats['found_privkeys']}")
+            self.log(w, f"📍 Найдено адресов: {stats['found_addresses']}")
+            self.log(w, f"📧 Найдено credentials: {stats['found_credentials']}")
+            self.log(w, f"📝 Готово к проверке: {total} записей")
+            
+        except Exception as e:
+            self.log(w, f"❌ Ошибка парсинга: {e}")
 
     def _tab_of(self, w):
         for name, ww in self.tab_widgets.items():
