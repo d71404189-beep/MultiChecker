@@ -47,6 +47,10 @@ from checkers.api_utils import (
     fetch_spl_tokens_extended,
     is_valid_solana_address,
 )
+# v1.0.88: Новые модули
+from checkers.ton_checker import check_ton_full
+from checkers.evm_multichain import check_evm_all_chains, format_multichain_message
+from checkers.balance_cache import global_balance_cache
 
 _WALLET_PATTERNS = [
     ("bitcoin",   re.compile(r'^(bc1|[13])[a-zA-HJ-NP-Z0-9]{25,62}$')),
@@ -1174,6 +1178,11 @@ class CryptoChecker(BaseChecker):
         result = self.make_result(input=address, type="wallet", wallet_type="bitcoin", valid=True)
         prices = await self._get_prices(session, timeout)
 
+        # v1.0.88: Проверяем кэш
+        cached = await global_balance_cache.get(address, "bitcoin")
+        if cached:
+            return cached
+
         api_errors = []
 
         for api_name, url, fmt in [
@@ -1208,6 +1217,8 @@ class CryptoChecker(BaseChecker):
                     ord_msg = await self._check_btc_ordinals(address, timeout, proxy, session)
 
                     result["info"]["message"] = f"Balance: {formatted_balance}" + (" (empty)" if not result["exists"] else "") + whale + ord_msg
+                    # v1.0.88: Сохраняем в кэш
+                    await global_balance_cache.set(address, "bitcoin", result)
                     return result
                 elif resp:
                     api_errors.append(f"{api_name}: HTTP {resp.status}")
@@ -1229,6 +1240,11 @@ class CryptoChecker(BaseChecker):
         result = self.make_result(input=address, type="wallet", wallet_type="ethereum", valid=True)
         prices = await self._get_prices(session, timeout)
         balance = None
+
+        # v1.0.88: Проверяем кэш
+        cached = await global_balance_cache.get(address, "ethereum")
+        if cached:
+            return cached
         
         k = os.environ.get("ETHERSCAN_API_KEY", "")
         e_url = f"https://api.etherscan.io/api?module=account&action=balance&address={address}&tag=latest"
@@ -1361,9 +1377,30 @@ class CryptoChecker(BaseChecker):
             if activity: msg += f" | Активность: {activity}"
             msg += airdrop_msg
             if not result["exists"]: msg += " (empty)"
-            
+
             total_eth_usd = balance * prices.get("ethereum", {}).get("price", 0) + total_token_usd
-            result["info"]["total_usd"] = total_eth_usd; result["info"]["message"] = msg + self._whale_label(total_eth_usd)
+
+            # v1.0.88: Мультичейн проверка — ищем баланс на всех EVM сетях
+            try:
+                multichain = await check_evm_all_chains(
+                    address, timeout, proxy, session, prices,
+                    networks=["bsc", "polygon", "arbitrum", "optimism", "base", "avalanche", "zksync", "linea"]
+                )
+                mc_msg = format_multichain_message(multichain)
+                if mc_msg:
+                    msg += mc_msg
+                    # Добавляем к total USD
+                    mc_usd = sum(v["usd"] for v in multichain.values() if v.get("has_balance"))
+                    total_eth_usd += mc_usd
+                    result["info"]["multichain"] = multichain
+            except Exception:
+                pass
+
+            result["info"]["total_usd"] = total_eth_usd
+            result["info"]["message"] = msg + self._whale_label(total_eth_usd)
+
+            # v1.0.88: Сохраняем в кэш
+            await global_balance_cache.set(address, "ethereum", result)
         else:
             result["info"]["api_error"] = "All ETH APIs failed"
         return result
@@ -1688,19 +1725,17 @@ class CryptoChecker(BaseChecker):
         return await fetch_spl_tokens_extended(address, timeout, proxy, session)
 
     async def _check_ton(self, address, timeout, proxy, session):
-        result = self.make_result(input=address, type="wallet", wallet_type="ton", valid=True)
+        # v1.0.88: Полная проверка TON + Jetton токены
         prices = await self._get_prices(session, timeout)
-        try:
-            resp = await self.fetch(session, "GET", f"https://toncenter.com/api/v2/getAddressInformation?address={address}", timeout=timeout, proxy=proxy)
-            if resp.status == 200:
-                d = await resp.json(); resp.close()
-                if d.get("ok"):
-                    balance = int(d["result"].get("balance", 0)) / 1e9
-                    result["info"]["balance_ton"] = balance; result["exists"] = balance > 0
-                    usd = self._usd(balance, "ton", prices)
-                    result["info"]["message"] = f"Balance: {balance:.4f} TON{usd}" + (" (empty)" if not result["exists"] else "")
-            else: resp.close()
-        except Exception as e: result["info"]["api_error"] = str(e); result["info"].setdefault("message", f"⚠️ Не удалось проверить баланс ({type(e).__name__})")
+
+        # Проверяем кэш
+        cached = await global_balance_cache.get(address, "ton")
+        if cached:
+            return cached
+
+        result = await check_ton_full(address, timeout, proxy, session, prices)
+        # Сохраняем в кэш
+        await global_balance_cache.set(address, "ton", result)
         return result
 
     async def _check_cardano(self, address, timeout, proxy, session):

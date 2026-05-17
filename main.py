@@ -23,8 +23,8 @@ except ImportError:
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-# Установлена актуальная версия v1.0.87 - Critical improvements
-APP_VERSION = "1.0.87"
+# Установлена актуальная версия v1.0.88 - Important improvements
+APP_VERSION = "1.0.88"
 
 if platform.system() == "Windows":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -488,6 +488,30 @@ class MultiCheckerApp(ctk.CTk):
                                         fg_color=CARD2, border_color=BORDER,
                                         text_color=TEXT, corner_radius=8,
                                         placeholder_text="-100123456")
+
+        # v1.0.88: Строка API ключей
+        api_row = ctk.CTkFrame(sc, fg_color="transparent")
+        api_row.grid(row=3, column=0, padx=12, pady=(0, 8), sticky="ew")
+        api_row.grid_columnconfigure(1, weight=1)
+        api_row.grid_columnconfigure(3, weight=1)
+
+        ctk.CTkLabel(api_row, text="Etherscan API:", font=("Segoe UI", 12),
+                     text_color=MUTED).grid(row=0, column=0, padx=(0, 6), sticky="w")
+        w["etherscan_key"] = ctk.CTkEntry(api_row, font=("Segoe UI", 12),
+                                           fg_color=CARD2, border_color=BORDER,
+                                           text_color=TEXT, corner_radius=8,
+                                           placeholder_text="Ключ Etherscan (бесплатно на etherscan.io)")
+        w["etherscan_key"].grid(row=0, column=1, padx=(0, 12), sticky="ew")
+        create_tooltip(w["etherscan_key"], "API ключ Etherscan для проверки ETH балансов без rate limit.\nПолучить бесплатно: https://etherscan.io/myapikey")
+
+        ctk.CTkLabel(api_row, text="Blockchair API:", font=("Segoe UI", 12),
+                     text_color=MUTED).grid(row=0, column=2, padx=(0, 6), sticky="w")
+        w["blockchair_key"] = ctk.CTkEntry(api_row, font=("Segoe UI", 12),
+                                            fg_color=CARD2, border_color=BORDER,
+                                            text_color=TEXT, corner_radius=8,
+                                            placeholder_text="Ключ Blockchair (для BTC/LTC/DOGE)")
+        w["blockchair_key"].grid(row=0, column=3, sticky="ew")
+        create_tooltip(w["blockchair_key"], "API ключ Blockchair для проверки BTC/LTC/DOGE без rate limit.\nПолучить: https://blockchair.com/api")
         w["tg_chat_id"].grid(row=0, column=3, padx=(0, 18), sticky="w")
 
         w["tg_enabled"] = ctk.CTkSwitch(
@@ -1119,6 +1143,20 @@ class MultiCheckerApp(ctk.CTk):
                 w["tg_chat_id"].delete(0, "end")
                 w["tg_chat_id"].insert(0, tg_chat_id)
 
+            # v1.0.88: Загружаем API ключи и применяем через os.environ
+            etherscan_key = cfg.get("etherscan_key", "")
+            blockchair_key = cfg.get("blockchair_key", "")
+            if etherscan_key:
+                os.environ["ETHERSCAN_API_KEY"] = etherscan_key
+                if "etherscan_key" in w:
+                    w["etherscan_key"].delete(0, "end")
+                    w["etherscan_key"].insert(0, etherscan_key)
+            if blockchair_key:
+                os.environ["BLOCKCHAIR_API_KEY"] = blockchair_key
+                if "blockchair_key" in w:
+                    w["blockchair_key"].delete(0, "end")
+                    w["blockchair_key"].insert(0, blockchair_key)
+
     def _save_config(self):
         config_path = self._get_config_path()
         first_tab = list(self.tab_widgets.keys())[0]
@@ -1132,6 +1170,8 @@ class MultiCheckerApp(ctk.CTk):
             "proxy": w["proxy"].get().strip(),
             "tg_token": w["tg_token"].get().strip(),
             "tg_chat_id": w["tg_chat_id"].get().strip(),
+            "etherscan_key": w.get("etherscan_key", type("", (), {"get": lambda s: ""})()).get().strip() if "etherscan_key" in w else "",
+            "blockchair_key": w.get("blockchair_key", type("", (), {"get": lambda s: ""})()).get().strip() if "blockchair_key" in w else "",
         }
 
         try:
@@ -1936,6 +1976,16 @@ class MultiCheckerApp(ctk.CTk):
         threads = self._safe_int(w["threads"].get().strip(), 100)
         timeout = self._safe_int(w["timeout"].get(), 10)
         proxy   = w["proxy"].get().strip()
+
+        # v1.0.88: Применяем API ключи из полей ввода
+        if "etherscan_key" in w:
+            key = w["etherscan_key"].get().strip()
+            if key:
+                os.environ["ETHERSCAN_API_KEY"] = key
+        if "blockchair_key" in w:
+            key = w["blockchair_key"].get().strip()
+            if key:
+                os.environ["BLOCKCHAIR_API_KEY"] = key
 
         self.is_running = True
         self.results = []; self.all_results = []; self._platform_stats = {}
