@@ -23,8 +23,8 @@ except ImportError:
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-# Установлена актуальная версия v1.0.89 - Useful features
-APP_VERSION = "1.0.89"
+# Установлена актуальная версия v1.0.90 - Auto Save + Auto Shutdown
+APP_VERSION = "1.0.90"
 
 if platform.system() == "Windows":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -184,6 +184,7 @@ class MultiCheckerApp(ctk.CTk):
         self.all_results     = []
         self._platform_stats = {}
         self._loaded_data    = {}
+        self._shutdown_cancelled = False  # v1.0.90
 
         self.checkers = {
             "Email":  EmailChecker(),
@@ -736,6 +737,27 @@ class MultiCheckerApp(ctk.CTk):
         create_tooltip(btn_paste, "Вставить из буфера обмена (Ctrl+V)")
         create_tooltip(btn_dupes, "Удалить дубликаты из списка")
         create_tooltip(btn_dump, "Парсить дамп (email:pass:seed, user|pass|key и т.д.)")
+
+        # v1.0.90: Чекбокс автовыключения ПК
+        shutdown_frame = ctk.CTkFrame(bf, fg_color="transparent")
+        shutdown_frame.pack(side="left", padx=(12, 0))
+        w["auto_shutdown"] = ctk.CTkCheckBox(
+            shutdown_frame,
+            text="⏻ Выкл. ПК",
+            font=("Segoe UI", 11, "bold"),
+            text_color=YELLOW,
+            fg_color=YELLOW,
+            hover_color="#d97706",
+            border_color=YELLOW,
+            width=16, height=16,
+            corner_radius=4,
+        )
+        w["auto_shutdown"].pack(side="left")
+        create_tooltip(w["auto_shutdown"],
+            "После завершения сканирования:\n"
+            "1. Автосохранение всех результатов\n"
+            "2. Выключение ПК через 60 секунд"
+        )
 
         # 🎨 Красивая панель экспорта
         eg = ctk.CTkFrame(bf, fg_color=CARD, corner_radius=12, border_width=1, border_color=BORDER)
@@ -2345,6 +2367,9 @@ class MultiCheckerApp(ctk.CTk):
         self.log(w, i18n.t("completed").format(len(self.results), total))
         self.log(w, "─" * 64)
 
+        # v1.0.90: Автосохранение + автовыключение
+        self.after(0, lambda: self._on_scan_complete(w, tab_name))
+
     async def _check_item(self, item, tab_name, timeout, proxy, session):
         checker = self.checkers.get(tab_name)
         try:
@@ -2488,6 +2513,206 @@ class MultiCheckerApp(ctk.CTk):
 
     def stop_check(self):
         self.is_running = False
+
+    # ═══════════════════════════════════════════════════════════════════════
+    #  v1.0.90: АВТОСОХРАНЕНИЕ + АВТОВЫКЛЮЧЕНИЕ
+    # ═══════════════════════════════════════════════════════════════════════
+
+    def _on_scan_complete(self, w, tab_name):
+        """Вызывается после завершения сканирования. Автосохранение + выключение."""
+        # Всегда автосохраняем
+        saved_files = self._auto_save_all(w, tab_name)
+        if saved_files:
+            self.log(w, "─" * 64)
+            self.log(w, "💾 АВТОСОХРАНЕНИЕ:")
+            for fn, cnt in saved_files.items():
+                if cnt > 0:
+                    self.log(w, f"   ✅ {fn} ({cnt} записей)")
+            self.log(w, "─" * 64)
+
+        # Проверяем чекбокс автовыключения
+        shutdown_var = w.get("auto_shutdown")
+        if shutdown_var and shutdown_var.get():
+            self._schedule_shutdown(w)
+
+    def _auto_save_all(self, w, tab_name: str) -> dict:
+        """
+        Автосохранение всех возможных данных после сканирования.
+        Возвращает {filename: count}.
+        """
+        from checkers.wallet_exporter import global_wallet_exporter
+        from checkers.exchange_checker import global_exchange_exporter
+        from datetime import datetime
+
+        saved = {}
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        # 1. Все результаты (TXT)
+        if self.all_results:
+            fn = f"auto_all_{ts}.txt"
+            try:
+                with open(fn, "w", encoding="utf-8") as f:
+                    f.write(f"# Все результаты | {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                    f.write(f"# Всего: {len(self.all_results)}\n\n")
+                    for r in self.all_results:
+                        inp = r.get("input", "")
+                        msg = r.get("info", {}).get("message", "")
+                        exists = "+" if r.get("exists") else "-"
+                        f.write(f"[{exists}] {inp} — {msg}\n")
+                saved[fn] = len(self.all_results)
+            except Exception:
+                pass
+
+        # 2. Только с балансом (JSON)
+        if self.results:
+            fn = f"auto_balance_{ts}.json"
+            try:
+                import json
+                with open(fn, "w", encoding="utf-8") as f:
+                    json.dump(self.results, f, indent=2, ensure_ascii=False)
+                saved[fn] = len(self.results)
+            except Exception:
+                pass
+
+        # 3. Найденные кошельки (все форматы)
+        global_wallet_exporter.add_all(self.all_results)
+        if global_wallet_exporter.count > 0:
+            try:
+                exported = global_wallet_exporter.export_all(prefix=f"auto_found_{ts}")
+                for fn2, cnt in exported.items():
+                    if cnt > 0:
+                        saved[fn2] = cnt
+            except Exception:
+                pass
+
+        # 4. Биржевые аккаунты (если есть)
+        if global_exchange_exporter.accounts:
+            fn = f"auto_exchange_{ts}.txt"
+            try:
+                cnt = global_exchange_exporter.export_txt(fn, min_usd=0.0)
+                if cnt > 0:
+                    saved[fn] = cnt
+            except Exception:
+                pass
+
+        # 5. Seed фразы отдельно
+        seeds = [r for r in self.all_results if r.get("type") == "seed" and r.get("exists")]
+        if seeds:
+            fn = f"auto_seeds_{ts}.txt"
+            try:
+                with open(fn, "w", encoding="utf-8") as f:
+                    f.write(f"# Seed фразы с балансом | {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+                    for r in seeds:
+                        seed = r.get("info", {}).get("mnemonic") or r.get("input", "")
+                        msg  = r.get("info", {}).get("message", "")
+                        f.write(f"# {msg[:80]}\n{seed}\n\n")
+                saved[fn] = len(seeds)
+            except Exception:
+                pass
+
+        # 6. Приватные ключи отдельно
+        keys = [r for r in self.all_results
+                if r.get("type") in ("privkey_hex", "privkey_wif") and r.get("exists")]
+        if keys:
+            fn = f"auto_keys_{ts}.txt"
+            try:
+                with open(fn, "w", encoding="utf-8") as f:
+                    f.write(f"# Приватные ключи с балансом | {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+                    for r in keys:
+                        key = r.get("info", {}).get("formats", {}).get("hex_with_0x") or r.get("input", "")
+                        msg = r.get("info", {}).get("message", "")
+                        f.write(f"# {msg[:80]}\n{key}\n\n")
+                saved[fn] = len(keys)
+            except Exception:
+                pass
+
+        return saved
+
+    def _schedule_shutdown(self, w):
+        """Запускает обратный отсчёт и выключает ПК."""
+        import threading
+        import subprocess
+
+        delay = 60  # секунд до выключения
+
+        self.log(w, "─" * 64)
+        self.log(w, f"⏻ АВТОВЫКЛЮЧЕНИЕ ПК через {delay} секунд!")
+        self.log(w, "   Закройте программу чтобы отменить.")
+        self.log(w, "─" * 64)
+
+        # Показываем диалог с возможностью отмены
+        self._shutdown_cancelled = False
+
+        def show_countdown():
+            import tkinter as tk
+            try:
+                dlg = tk.Toplevel(self)
+                dlg.title("⏻ Автовыключение ПК")
+                dlg.geometry("360x160")
+                dlg.resizable(False, False)
+                dlg.configure(bg="#0d1117")
+                dlg.grab_set()
+                dlg.attributes("-topmost", True)
+
+                lbl = tk.Label(dlg, text=f"ПК выключится через {delay} сек.",
+                               font=("Segoe UI", 14, "bold"),
+                               fg="#f59e0b", bg="#0d1117")
+                lbl.pack(pady=(20, 8))
+
+                countdown_lbl = tk.Label(dlg, text=str(delay),
+                                         font=("Segoe UI", 28, "bold"),
+                                         fg="#ef4444", bg="#0d1117")
+                countdown_lbl.pack(pady=4)
+
+                def cancel():
+                    self._shutdown_cancelled = True
+                    dlg.destroy()
+                    self.log(w, "✅ Автовыключение отменено.")
+
+                cancel_btn = tk.Button(dlg, text="❌ Отменить выключение",
+                                       font=("Segoe UI", 12, "bold"),
+                                       bg="#ef4444", fg="white",
+                                       relief="flat", cursor="hand2",
+                                       command=cancel)
+                cancel_btn.pack(pady=12, ipadx=10, ipady=4)
+
+                remaining = [delay]
+
+                def tick():
+                    if self._shutdown_cancelled or not dlg.winfo_exists():
+                        return
+                    remaining[0] -= 1
+                    if remaining[0] <= 0:
+                        dlg.destroy()
+                        return
+                    countdown_lbl.config(text=str(remaining[0]))
+                    dlg.after(1000, tick)
+
+                dlg.after(1000, tick)
+                dlg.protocol("WM_DELETE_WINDOW", cancel)
+                dlg.wait_window()
+            except Exception:
+                pass
+
+        def do_shutdown():
+            import time
+            # Показываем диалог в главном потоке
+            self.after(0, show_countdown)
+            # Ждём delay секунд
+            time.sleep(delay + 1)
+            if not self._shutdown_cancelled:
+                try:
+                    import platform
+                    if platform.system() == "Windows":
+                        subprocess.run(["shutdown", "/s", "/t", "0"], check=False)
+                    elif platform.system() == "Linux":
+                        subprocess.run(["shutdown", "-h", "now"], check=False)
+                    elif platform.system() == "Darwin":
+                        subprocess.run(["sudo", "shutdown", "-h", "now"], check=False)
+                except Exception as e:
+                    self.after(0, lambda: self.log(w, f"❌ Ошибка выключения: {e}"))
+
+        threading.Thread(target=do_shutdown, daemon=True).start()
 
     def clear_output(self, w):
         w["output"].delete("1.0", "end")
