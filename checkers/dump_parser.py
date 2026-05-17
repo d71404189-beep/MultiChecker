@@ -66,6 +66,52 @@ class DumpParser:
     def _parse_line(self, line: str) -> Optional[Dict[str, Any]]:
         """Парсит одну строку дампа"""
         
+        # Пытаемся распарсить
+        result = {
+            "original": line,
+            "email": None,
+            "password": None,
+            "url": None,
+            "seed": None,
+            "privkey": None,
+            "address": None,
+            "extra": [],
+        }
+        
+        # СПЕЦИАЛЬНАЯ ОБРАБОТКА: url:mail:pass формат
+        # Проверяем есть ли URL в начале строки
+        url_pattern = re.compile(r'^(https?://[^\s:]+):')
+        url_match = url_pattern.match(line)
+        
+        if url_match:
+            # Формат: url:mail:pass или url:mail:pass:extra
+            result["url"] = url_match.group(1)
+            
+            # Убираем URL из строки
+            remaining = line[len(result["url"]) + 1:]  # +1 для двоеточия
+            
+            # Теперь парсим оставшуюся часть как mail:pass
+            parts = remaining.split(':', 2)  # Максимум 3 части
+            
+            if len(parts) >= 2:
+                # Первая часть - email
+                email_candidate = parts[0].strip()
+                if self.EMAIL_RE.match(email_candidate):
+                    result["email"] = email_candidate
+                    # Вторая часть - пароль
+                    result["password"] = parts[1].strip()
+                    
+                    if result["email"] and result["password"]:
+                        self.stats["found_credentials"] += 1
+                    
+                    # Третья часть (если есть) - extra
+                    if len(parts) > 2:
+                        result["extra"].append(parts[2].strip())
+                    
+                    return result
+        
+        # СТАНДАРТНАЯ ОБРАБОТКА (если не url:mail:pass формат)
+        
         # Определяем разделитель
         separator = self._detect_separator(line)
         
@@ -75,17 +121,6 @@ class DumpParser:
         else:
             # Пробуем найти данные без разделителя
             parts = [line]
-        
-        # Пытаемся распарсить
-        result = {
-            "original": line,
-            "email": None,
-            "password": None,
-            "seed": None,
-            "privkey": None,
-            "address": None,
-            "extra": [],
-        }
         
         # Ищем email
         email_match = self.EMAIL_RE.search(line)
@@ -134,7 +169,7 @@ class DumpParser:
                     continue
                 
                 # Если это похоже на пароль (не слишком длинное, не seed)
-                if len(part_clean) > 3 and len(part_clean) < 100:
+                if len(part_clean) > 0 and len(part_clean) < 100:  # Изменено: минимум 0 символов
                     words = part_clean.split()
                     if len(words) < 5:  # Не seed фраза
                         if not result["password"]:
@@ -167,27 +202,41 @@ class DumpParser:
         
         return None
     
-    def extract_for_checker(self, parsed_data: List[Dict[str, Any]]) -> List[str]:
+    def extract_for_checker(self, parsed_data: List[Dict[str, Any]], checker_type: str = "auto") -> List[str]:
         """
         Извлекает данные для проверки чекером
         
         Args:
             parsed_data: Список распарсенных записей
+            checker_type: Тип чекера (auto, email, crypto)
         
         Returns:
-            Список строк для проверки (seed, privkey, address)
+            Список строк для проверки
         """
         
         results = []
         
         for item in parsed_data:
-            # Приоритет: seed > privkey > address
-            if item["seed"]:
-                results.append(item["seed"])
-            elif item["privkey"]:
-                results.append(item["privkey"])
-            elif item["address"]:
-                results.append(item["address"])
+            # Для email чекера: email:password
+            if checker_type in ["auto", "email"]:
+                if item["email"] and item["password"]:
+                    results.append(f"{item['email']}:{item['password']}")
+                    continue
+                elif item["email"]:
+                    results.append(item["email"])
+                    continue
+            
+            # Для crypto чекера: seed > privkey > address
+            if checker_type in ["auto", "crypto"]:
+                if item["seed"]:
+                    results.append(item["seed"])
+                    continue
+                elif item["privkey"]:
+                    results.append(item["privkey"])
+                    continue
+                elif item["address"]:
+                    results.append(item["address"])
+                    continue
         
         return results
     
