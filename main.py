@@ -23,8 +23,8 @@ except ImportError:
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-# Установлена актуальная версия v1.0.77
-APP_VERSION = "1.0.77"
+# Установлена актуальная версия v1.0.78
+APP_VERSION = "1.0.78"
 
 if platform.system() == "Windows":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -774,6 +774,16 @@ class MultiCheckerApp(ctk.CTk):
                        command=lambda: self.export_auth_accounts(w))
         btn_auth.pack(side="left", padx=2, pady=4)
         export_buttons.append(btn_auth)
+        
+        # Кнопка экспорта ВСЕХ ключей (даже с $0) - только для Crypto
+        if tab_name == "Crypto":
+            btn_empty_keys = ctk.CTkButton(eg, text="🔑 ALL", fg_color="transparent",
+                           hover_color=HOVER, font=("Segoe UI", 11, "bold"),
+                           text_color=YELLOW, corner_radius=6, height=30, width=60,
+                           command=lambda: self.export_empty_keys(w))
+            btn_empty_keys.pack(side="left", padx=2, pady=4)
+            export_buttons.append(btn_empty_keys)
+            create_tooltip(btn_empty_keys, "Экспорт ВСЕХ приватных ключей (даже с $0)")
         
         # Добавляем tooltips для кнопок экспорта
         create_tooltip(export_buttons[0], "Экспорт результатов в TXT файл")
@@ -2732,6 +2742,83 @@ class MultiCheckerApp(ctk.CTk):
                 self.log(w, "\n📭 DeFi позиции не найдены")
         
         threading.Thread(target=run_defi_check, daemon=True).start()
+    
+    def export_empty_keys(self, w):
+        """Экспортировать все найденные приватные ключи (даже с $0)"""
+        if not self.all_results:
+            self.log(w, "❌ Нет результатов для экспорта")
+            return
+        
+        # Находим все приватные ключи
+        privkeys = []
+        for r in self.all_results:
+            if r.get("type") in ["privkey_hex", "privkey_wif"]:
+                info = r.get("info", {})
+                address = info.get("address", "")
+                total_usd = info.get("total_usd", 0)
+                chains = info.get("chains", {})
+                
+                # Получаем приватный ключ
+                if r.get("type") == "privkey_hex":
+                    privkey = info.get("formats", {}).get("hex_with_0x", r.get("input", ""))
+                else:
+                    privkey = info.get("formats", {}).get("wif", r.get("input", ""))
+                
+                privkeys.append({
+                    "privkey": privkey,
+                    "address": address,
+                    "balance_usd": total_usd,
+                    "chains": list(chains.keys()) if chains else [],
+                    "type": r.get("type")
+                })
+        
+        if not privkeys:
+            self.log(w, "❌ Приватные ключи не найдены")
+            return
+        
+        # Сохраняем в файл
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"privkeys_all_{timestamp}.txt"
+        
+        try:
+            with open(filename, "w", encoding="utf-8") as f:
+                f.write("="*70 + "\n")
+                f.write("ЭКСПОРТ ВСЕХ ПРИВАТНЫХ КЛЮЧЕЙ\n")
+                f.write(f"Дата: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write(f"Всего ключей: {len(privkeys)}\n")
+                f.write("="*70 + "\n\n")
+                
+                # Группируем по балансу
+                with_balance = [k for k in privkeys if k["balance_usd"] > 0]
+                without_balance = [k for k in privkeys if k["balance_usd"] == 0]
+                
+                if with_balance:
+                    f.write(f"💰 С БАЛАНСОМ ({len(with_balance)} шт):\n")
+                    f.write("-"*70 + "\n")
+                    for key in sorted(with_balance, key=lambda x: x["balance_usd"], reverse=True):
+                        f.write(f"\nПриватный ключ: {key['privkey']}\n")
+                        f.write(f"Адрес: {key['address']}\n")
+                        f.write(f"Баланс: ${key['balance_usd']:,.2f}\n")
+                        f.write(f"Сети: {', '.join(key['chains']) if key['chains'] else 'нет'}\n")
+                        f.write(f"Тип: {key['type']}\n")
+                    f.write("\n")
+                
+                if without_balance:
+                    f.write(f"\n📭 БЕЗ БАЛАНСА ({len(without_balance)} шт):\n")
+                    f.write("-"*70 + "\n")
+                    f.write("⚠️ Эти ключи валидные, но на них нет денег.\n")
+                    f.write("💡 Сохрани их - может быть придут аирдропы или ошибочные переводы!\n\n")
+                    for key in without_balance:
+                        f.write(f"\nПриватный ключ: {key['privkey']}\n")
+                        f.write(f"Адрес: {key['address']}\n")
+                        f.write(f"Тип: {key['type']}\n")
+            
+            self.log(w, f"✅ Экспортировано {len(privkeys)} ключей в {filename}")
+            self.log(w, f"   💰 С балансом: {len(with_balance)}")
+            self.log(w, f"   📭 Без баланса: {len(without_balance)}")
+            
+        except Exception as e:
+            self.log(w, f"❌ Ошибка экспорта: {e}")
 
 
 if __name__ == "__main__":
