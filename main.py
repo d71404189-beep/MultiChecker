@@ -23,8 +23,8 @@ except ImportError:
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-# Установлена актуальная версия v1.0.75
-APP_VERSION = "1.0.75"
+# Установлена актуальная версия v1.0.76
+APP_VERSION = "1.0.76"
 
 if platform.system() == "Windows":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -790,11 +790,30 @@ class MultiCheckerApp(ctk.CTk):
         btn_stats.pack(side="right", padx=(0, 6))
         create_tooltip(btn_stats, "Показать детальную статистику проверки")
         
-        # Кнопка Ultimate Finder (только для Crypto)
+        # Дополнительные кнопки для Crypto чекера
         if tab_name == "Crypto":
+            # DeFi Positions
+            btn_defi = btn(bf, "📊 DEFI", "#10b981", "#34d399",
+                lambda: self.check_defi_positions(w), 110)
+            btn_defi.pack(side="right", padx=(0, 6))
+            create_tooltip(btn_defi, "Проверить DeFi позиции (Lido, Aave, Uniswap)")
+            
+            # Airdrop Hunter
+            btn_airdrop = btn(bf, "🪂 AIRDROP", "#8b5cf6", "#a78bfa",
+                lambda: self.check_airdrops(w), 130)
+            btn_airdrop.pack(side="right", padx=(0, 6))
+            create_tooltip(btn_airdrop, "Проверить eligibility для аирдропов")
+            
+            # NFT Checker
+            btn_nft = btn(bf, "🖼️ NFT", "#ec4899", "#f472b6",
+                lambda: self.check_nfts(w), 110)
+            btn_nft.pack(side="right", padx=(0, 6))
+            create_tooltip(btn_nft, "Проверить NFT коллекции и их стоимость")
+            
+            # Ultimate Finder
             btn_ultimate = btn(bf, "🎯 ULTIMATE", "#d29922", "#b8821e",
                 lambda: self.find_ultimate_accounts(w), 130)
-            btn_ultimate.pack(side="right")
+            btn_ultimate.pack(side="right", padx=(0, 6))
             create_tooltip(btn_ultimate, "Найти аккаунты с seed/privkey И балансом")
 
         cr = ctk.CTkFrame(body, fg_color="transparent")
@@ -2555,6 +2574,164 @@ class MultiCheckerApp(ctk.CTk):
             print(f"✓ Статистика сохранена в {filename}")
         except Exception as e:
             print(f"✗ Ошибка экспорта: {e}")
+    
+    def check_nfts(self, w):
+        """Проверить NFT на найденных адресах"""
+        if not self.all_results:
+            self.log(w, "❌ Нет результатов для проверки NFT")
+            return
+        
+        self.log(w, "🖼️ Запуск NFT Checker...")
+        
+        # Находим все EVM адреса
+        evm_addresses = []
+        for r in self.all_results:
+            if r.get("wallet_type") in ["ethereum", "polygon", "bsc", "base", "arbitrum", "optimism"]:
+                addr = r.get("input", "")
+                if addr.startswith("0x") and len(addr) == 42:
+                    evm_addresses.append((addr, r.get("wallet_type", "ethereum")))
+        
+        if not evm_addresses:
+            self.log(w, "❌ EVM адреса не найдены. NFT Checker работает только с Ethereum/Polygon/BSC адресами.")
+            return
+        
+        self.log(w, f"🔍 Найдено {len(evm_addresses)} EVM адресов для проверки...")
+        
+        # Запускаем проверку в отдельном потоке
+        def run_nft_check():
+            from checkers.nft_checker import NFTChecker
+            checker = NFTChecker()
+            
+            found_nfts = []
+            
+            for addr, chain in evm_addresses[:10]:  # Проверяем первые 10
+                try:
+                    result = asyncio.run(checker.check_nfts(addr, chain))
+                    
+                    if result.get("total_nfts", 0) > 0:
+                        found_nfts.append(result)
+                        formatted = checker.format_nft_result(result)
+                        self.log(w, f"\n{'='*60}")
+                        self.log(w, f"📍 Адрес: {addr[:10]}...{addr[-8:]}")
+                        self.log(w, formatted)
+                
+                except Exception as e:
+                    self.log(w, f"❌ Ошибка проверки {addr[:10]}...: {e}")
+            
+            if found_nfts:
+                total_value = sum(r.get("total_value_usd", 0) for r in found_nfts)
+                self.log(w, f"\n{'='*60}")
+                self.log(w, f"🎉 ИТОГО: Найдено NFT на ${total_value:,.2f}!")
+            else:
+                self.log(w, "\n📭 NFT не найдено на проверенных адресах")
+        
+        threading.Thread(target=run_nft_check, daemon=True).start()
+    
+    def check_airdrops(self, w):
+        """Проверить eligibility для аирдропов"""
+        if not self.all_results:
+            self.log(w, "❌ Нет результатов для проверки аирдропов")
+            return
+        
+        self.log(w, "🪂 Запуск Airdrop Hunter...")
+        
+        # Находим все EVM адреса
+        evm_addresses = []
+        for r in self.all_results:
+            if r.get("wallet_type") in ["ethereum", "polygon", "bsc", "base", "arbitrum", "optimism"]:
+                addr = r.get("input", "")
+                if addr.startswith("0x") and len(addr) == 42:
+                    evm_addresses.append(addr)
+        
+        if not evm_addresses:
+            self.log(w, "❌ EVM адреса не найдены")
+            return
+        
+        self.log(w, f"🔍 Проверка {len(evm_addresses)} адресов на аирдропы...")
+        
+        def run_airdrop_check():
+            from checkers.airdrop_hunter import AirdropHunter
+            hunter = AirdropHunter()
+            
+            eligible_count = 0
+            total_value = 0.0
+            
+            for addr in evm_addresses[:10]:  # Первые 10
+                try:
+                    result = asyncio.run(hunter.check_airdrops(addr))
+                    
+                    if result.get("eligible_airdrops"):
+                        eligible_count += 1
+                        total_value += result.get("total_estimated_value", 0)
+                        
+                        formatted = hunter.format_airdrop_result(result)
+                        self.log(w, f"\n{'='*60}")
+                        self.log(w, f"📍 Адрес: {addr[:10]}...{addr[-8:]}")
+                        self.log(w, formatted)
+                
+                except Exception as e:
+                    self.log(w, f"❌ Ошибка: {e}")
+            
+            if eligible_count > 0:
+                self.log(w, f"\n{'='*60}")
+                self.log(w, f"🎉 ИТОГО: {eligible_count} адресов eligible на ~${total_value:,.0f}!")
+            else:
+                self.log(w, "\n📭 Eligible аирдропы не найдены")
+        
+        threading.Thread(target=run_airdrop_check, daemon=True).start()
+    
+    def check_defi_positions(self, w):
+        """Проверить DeFi позиции"""
+        if not self.all_results:
+            self.log(w, "❌ Нет результатов для проверки DeFi")
+            return
+        
+        self.log(w, "📊 Запуск DeFi Positions Checker...")
+        
+        # Находим все EVM адреса
+        evm_addresses = []
+        for r in self.all_results:
+            if r.get("wallet_type") in ["ethereum", "polygon", "bsc"]:
+                addr = r.get("input", "")
+                if addr.startswith("0x") and len(addr) == 42:
+                    evm_addresses.append(addr)
+        
+        if not evm_addresses:
+            self.log(w, "❌ EVM адреса не найдены")
+            return
+        
+        self.log(w, f"🔍 Проверка {len(evm_addresses)} адресов на DeFi позиции...")
+        
+        def run_defi_check():
+            from checkers.defi_positions import DeFiPositionsChecker
+            checker = DeFiPositionsChecker()
+            
+            found_positions = 0
+            total_value = 0.0
+            
+            for addr in evm_addresses[:10]:  # Первые 10
+                try:
+                    result = asyncio.run(checker.check_positions(addr))
+                    
+                    if result.get("total_value_usd", 0) > 0:
+                        found_positions += 1
+                        total_value += result["total_value_usd"]
+                        
+                        formatted = checker.format_defi_result(result)
+                        self.log(w, f"\n{'='*60}")
+                        self.log(w, f"📍 Адрес: {addr[:10]}...{addr[-8:]}")
+                        self.log(w, formatted)
+                
+                except Exception as e:
+                    self.log(w, f"❌ Ошибка: {e}")
+            
+            if found_positions > 0:
+                self.log(w, f"\n{'='*60}")
+                self.log(w, f"🎉 ИТОГО: Найдено DeFi позиций на ${total_value:,.2f}!")
+            else:
+                self.log(w, "\n📭 DeFi позиции не найдены")
+        
+        threading.Thread(target=run_defi_check, daemon=True).start()
 
 
 if __name__ == "__main__":
