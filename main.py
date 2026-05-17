@@ -23,8 +23,8 @@ except ImportError:
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-# Установлена актуальная версия v1.0.73
-APP_VERSION = "1.0.73"
+# Установлена актуальная версия v1.0.74
+APP_VERSION = "1.0.74"
 
 if platform.system() == "Windows":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -2229,25 +2229,38 @@ class MultiCheckerApp(ctk.CTk):
         for tag, line in w.get("_log_lines", []):
             if ft == "all" or tag == ft or tag == "system":
                 lines_to_show.append((line, tag))
-            elif ft == "balance" and tag == "valid":
-                # 🎯 Улучшенная фильтрация: показываем ТОЛЬКО с реальным балансом
-                # Проверяем что есть баланс И он не пустой
-                if ("Balance:" in line or "balance" in line.lower() or "$" in line):
+            elif ft == "balance":
+                # 🎯 СТРОГАЯ фильтрация: показываем ТОЛЬКО строки с явным упоминанием баланса
+                # Должно быть одно из ключевых слов баланса
+                balance_keywords = [
+                    "Balance:",      # Balance: 1.23 ETH
+                    "balance_",      # balance_eth: 0.5
+                    "Total:",        # Total: $1000
+                    "Portfolio:",    # Portfolio: $5000
+                    "~$",            # ~$123.45
+                ]
+                
+                # Проверяем что в строке есть хотя бы одно ключевое слово баланса
+                has_balance_keyword = any(keyword in line for keyword in balance_keywords)
+                
+                # Также проверяем что есть знак доллара с цифрой (но не $0.00)
+                import re
+                has_dollar_amount = bool(re.search(r'\$[0-9]+', line))
+                
+                # Показываем только если есть ключевое слово ИЛИ сумма в долларах
+                if has_balance_keyword or has_dollar_amount:
                     # Исключаем пустые балансы
-                    if "(empty)" not in line and "0.0000" not in line and "$0.00" not in line:
-                        # Дополнительная проверка: есть ли цифры больше 0
-                        import re
-                        # Ищем паттерны типа "Balance: 1.23" или "$45.67" или "balance_eth: 0.5"
-                        has_positive_balance = False
-                        
-                        # Проверяем наличие положительных чисел в балансе
+                    if "(empty)" not in line and "0.0000" not in line and "$0.00" not in line and "$0)" not in line:
+                        # Дополнительная проверка: есть ли положительные числа
                         balance_patterns = [
                             r'Balance:\s*([0-9]+\.?[0-9]*)',  # Balance: 1.23
-                            r'\$([0-9]+\.?[0-9]*)',            # $45.67
+                            r'\$([0-9]+\.?[0-9]+)',            # $45.67 (минимум с точкой)
                             r'balance[_\s]*[a-z]*:\s*([0-9]+\.?[0-9]*)',  # balance_eth: 0.5
                             r'~\$([0-9]+\.?[0-9]*)',           # ~$123.45
+                            r'Total:\s*\$?([0-9]+\.?[0-9]*)',  # Total: $1000
                         ]
                         
+                        has_positive_balance = False
                         for pattern in balance_patterns:
                             matches = re.findall(pattern, line, re.IGNORECASE)
                             for match in matches:
