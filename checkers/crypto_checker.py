@@ -29,6 +29,15 @@ from checkers.advanced_withdraw import (
     ConditionalWithdrawManager,
     BridgeManager
 )
+# v1.0.77: Оптимизация производительности
+from checkers.performance_optimizer import (
+    global_cache,
+    global_rate_limiter,
+    global_monitor,
+    cached,
+    rate_limited,
+    timed
+)
 
 _WALLET_PATTERNS = [
     ("bitcoin",   re.compile(r'^(bc1|[13])[a-zA-HJ-NP-Z0-9]{25,62}$')),
