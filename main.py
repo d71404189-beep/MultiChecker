@@ -23,8 +23,8 @@ except ImportError:
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-# Установлена актуальная версия v1.0.79
-APP_VERSION = "1.0.79"
+# Установлена актуальная версия v1.0.80 - МЕГА-РЕЛИЗ
+APP_VERSION = "1.0.80"
 
 if platform.system() == "Windows":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -38,6 +38,10 @@ from checkers.balance_formatter import BalanceFormatter, LogColorizer, BalanceHi
 from checkers.dump_parser import DumpParser
 from checkers.proxy_manager import ProxyManager, load_proxies, get_next_proxy, get_proxy_count, get_stats as get_proxy_stats, reset as reset_proxies, check_all_proxies
 from checkers.ultimate_finder import UltimateAccountFinder
+# v1.0.80: Новые модули
+from checkers.smart_alerts import global_alert_manager
+from checkers.portfolio_tracker import global_portfolio_tracker
+from checkers.price_service import global_price_service
 import i18n
 
 ctk.set_appearance_mode("dark")
