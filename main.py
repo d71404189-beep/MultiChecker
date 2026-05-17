@@ -23,8 +23,8 @@ except ImportError:
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-# Установлена актуальная версия v1.0.85 - Exchange API Checker + Export
-APP_VERSION = "1.0.85"
+# Установлена актуальная версия v1.0.86 - Smart Dump Crypto Checker
+APP_VERSION = "1.0.86"
 
 if platform.system() == "Windows":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -1695,56 +1695,64 @@ class MultiCheckerApp(ctk.CTk):
             self.log(w, i18n.t("dedup_no_dupes").format(orig))
     
     def parse_dump(self, w):
-        """Парсит дамп и извлекает данные для проверки"""
+        """v1.0.86: Умный парсер дампа — находит все типы крипто данных"""
+        from checkers.dump_crypto_checker import SmartDumpChecker
+
         txt = w["input"].get("1.0", "end").strip()
         if not txt:
             self.log(w, "❌ Нет данных для парсинга")
             return
-        
+
         self.log(w, "🔄 Парсинг дампа...")
-        
+
         try:
-            parser = DumpParser()
-            parsed_data = parser.parse_dump(txt)
-            
-            if not parsed_data:
-                self.log(w, "❌ Не удалось распарсить данные")
+            checker = SmartDumpChecker()
+            parsed = checker.parse_dump(txt)
+
+            crypto   = parsed["crypto"]
+            exchange = parsed["exchange"]
+            api_keys = parsed["api_keys"]
+            all_items = checker.get_all_for_checker(parsed)
+
+            if not all_items:
+                self.log(w, "❌ Не найдено данных для проверки")
+                self.log(w, "   Поддерживаемые форматы:")
+                self.log(w, "   • seed фраза (12/24 слова)")
+                self.log(w, "   • приватный ключ (HEX/WIF)")
+                self.log(w, "   • крипто адрес (BTC/ETH/TRX/SOL/TON)")
+                self.log(w, "   • url:mail:pass  или  mail:pass")
+                self.log(w, "   • binance:API_KEY:SECRET_KEY")
                 return
-            
-            # Извлекаем данные для чекера
-            for_checker = parser.extract_for_checker(parsed_data)
-            
-            if not for_checker:
-                self.log(w, "❌ Не найдено данных для проверки (seed/privkey/address)")
-                return
-            
+
             # Обновляем поле ввода
             tab = self._tab_of(w)
-            self._loaded_data[tab] = for_checker
+            self._loaded_data[tab] = all_items
             w["input"].delete("1.0", "end")
-            
-            total = len(for_checker)
-            if total <= _TEXTBOX_DISPLAY_LIMIT:
-                w["input"].insert("1.0", "\n".join(for_checker))
-            else:
-                w["input"].insert("1.0",
-                    "\n".join(for_checker[:_TEXTBOX_DISPLAY_LIMIT]) +
-                    f"\n\n... [{total - _TEXTBOX_DISPLAY_LIMIT} строк ещё] ...")
-            
-            # Показываем статистику
-            stats = parser.get_stats()
-            self.log(w, "✅ Дамп распарсен успешно!")
-            self.log(w, f"📊 Всего строк: {stats['total_lines']}")
-            self.log(w, f"✅ Распарсено: {stats['parsed_lines']}")
-            self.log(w, f"❌ Не удалось: {stats['failed_lines']}")
-            self.log(w, f"🌱 Найдено seed: {stats['found_seeds']}")
-            self.log(w, f"🔑 Найдено privkey: {stats['found_privkeys']}")
-            self.log(w, f"📍 Найдено адресов: {stats['found_addresses']}")
-            self.log(w, f"📧 Найдено credentials: {stats['found_credentials']}")
+
+            total = len(all_items)
+            display = all_items[:_TEXTBOX_DISPLAY_LIMIT]
+            w["input"].insert("1.0", "\n".join(display))
+            if total > _TEXTBOX_DISPLAY_LIMIT:
+                w["input"].insert("end", f"\n\n... [{total - _TEXTBOX_DISPLAY_LIMIT} строк ещё] ...")
+
+            # Статистика
+            self.log(w, "✅ Дамп распарсен!")
+            self.log(w, checker.format_stats())
+            self.log(w, "─" * 50)
             self.log(w, f"📝 Готово к проверке: {total} записей")
-            
+            if crypto:
+                self.log(w, f"   ₿  Крипто (адреса/ключи/seed): {len(crypto)}")
+            if exchange:
+                self.log(w, f"   🏦 Биржевые credentials:        {len(exchange)}")
+            if api_keys:
+                self.log(w, f"   🔐 API ключи бирж:              {len(api_keys)}")
+            self.log(w, "─" * 50)
+            self.log(w, "▶ Нажмите СТАРТ для проверки балансов")
+
         except Exception as e:
             self.log(w, f"❌ Ошибка парсинга: {e}")
+            import traceback
+            print(traceback.format_exc())
 
     def _tab_of(self, w):
         for name, ww in self.tab_widgets.items():
