@@ -23,8 +23,8 @@ except ImportError:
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-# Установлена актуальная версия v1.0.69
-APP_VERSION = "1.0.69"
+# Установлена актуальная версия v1.0.70
+APP_VERSION = "1.0.70"
 
 if platform.system() == "Windows":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -36,7 +36,7 @@ from checkers.game_checker import GameChecker
 from checkers.ai_checker import AIChecker
 from checkers.balance_formatter import BalanceFormatter, LogColorizer, BalanceHighlighter
 from checkers.dump_parser import DumpParser
-from checkers.proxy_manager import ProxyManager, load_proxies, get_next_proxy, get_proxy_count, get_stats as get_proxy_stats, reset as reset_proxies
+from checkers.proxy_manager import ProxyManager, load_proxies, get_next_proxy, get_proxy_count, get_stats as get_proxy_stats, reset as reset_proxies, check_all_proxies
 import i18n
 
 ctk.set_appearance_mode("dark")
@@ -1606,11 +1606,31 @@ class MultiCheckerApp(ctk.CTk):
         if proxy:
             reset_proxies()  # Сбрасываем предыдущие прокси
             if load_proxies(proxy):
-                proxy_count = get_proxy_count()
-                proxy_stats = get_proxy_stats()
-                self.after(0, lambda: self.log(w, f"✅ Загружено {proxy_count} прокси"))
-                if proxy_stats['invalid_proxies'] > 0:
-                    self.after(0, lambda: self.log(w, f"⚠️ Невалидных прокси: {proxy_stats['invalid_proxies']}"))
+                initial_count = get_proxy_count()
+                self.after(0, lambda: self.log(w, f"📋 Загружено {initial_count} прокси"))
+                
+                # Проверяем прокси перед использованием
+                self.after(0, lambda: self.log(w, f"🔍 Проверка прокси... (это может занять время)"))
+                
+                try:
+                    check_result = await check_all_proxies(timeout=5, max_concurrent=50)
+                    
+                    alive = check_result['alive']
+                    dead = check_result['dead']
+                    
+                    if alive > 0:
+                        proxy_count = alive
+                        self.after(0, lambda: self.log(w, f"✅ Живых прокси: {alive}"))
+                        if dead > 0:
+                            self.after(0, lambda: self.log(w, f"❌ Мертвых прокси: {dead} (удалены)"))
+                    else:
+                        self.after(0, lambda: self.log(w, f"❌ Все прокси мертвые! Проверка без прокси."))
+                        proxy_count = 0
+                
+                except Exception as e:
+                    self.after(0, lambda: self.log(w, f"⚠️ Ошибка проверки прокси: {e}"))
+                    self.after(0, lambda: self.log(w, f"⚠️ Используем прокси без проверки"))
+                    proxy_count = initial_count
             else:
                 self.after(0, lambda: self.log(w, f"❌ Не удалось загрузить прокси из: {proxy}"))
 

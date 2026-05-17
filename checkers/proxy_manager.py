@@ -6,6 +6,8 @@ Proxy Manager v1.0.69
 
 import os
 import random
+import asyncio
+import aiohttp
 from typing import List, Optional
 
 
@@ -196,6 +198,119 @@ class ProxyManager:
             "invalid_proxies": 0,
             "current_proxy": None,
         }
+    
+    async def check_proxy(self, proxy: str, timeout: int = 10) -> bool:
+        """
+        Проверяет работоспособность прокси
+        
+        Args:
+            proxy: Прокси строка
+            timeout: Таймаут проверки в секундах
+        
+        Returns:
+            True если прокси работает
+        """
+        
+        # URL для проверки (быстрый и надежный)
+        test_urls = [
+            "https://api.ipify.org?format=json",
+            "https://httpbin.org/ip",
+            "https://icanhazip.com",
+        ]
+        
+        try:
+            # Определяем тип прокси
+            if proxy.startswith("socks4://") or proxy.startswith("socks5://"):
+                # Для SOCKS прокси нужен aiohttp-socks
+                try:
+                    from aiohttp_socks import ProxyConnector
+                    
+                    connector = ProxyConnector.from_url(proxy)
+                    
+                    async with aiohttp.ClientSession(connector=connector) as session:
+                        async with session.get(
+                            test_urls[0],
+                            timeout=aiohttp.ClientTimeout(total=timeout),
+                            ssl=False
+                        ) as response:
+                            if response.status == 200:
+                                return True
+                except ImportError:
+                    # aiohttp-socks не установлен
+                    return False
+            else:
+                # HTTP/HTTPS прокси
+                if not proxy.startswith("http://") and not proxy.startswith("https://"):
+                    proxy = f"http://{proxy}"
+                
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(
+                        test_urls[0],
+                        proxy=proxy,
+                        timeout=aiohttp.ClientTimeout(total=timeout),
+                        ssl=False
+                    ) as response:
+                        if response.status == 200:
+                            return True
+        
+        except Exception:
+            pass
+        
+        return False
+    
+    async def check_all_proxies(self, timeout: int = 10, max_concurrent: int = 50) -> dict:
+        """
+        Проверяет все загруженные прокси
+        
+        Args:
+            timeout: Таймаут для каждого прокси
+            max_concurrent: Максимум одновременных проверок
+        
+        Returns:
+            Статистика проверки
+        """
+        
+        if not self.proxies:
+            return {
+                "total": 0,
+                "alive": 0,
+                "dead": 0,
+                "alive_proxies": [],
+            }
+        
+        total = len(self.proxies)
+        alive_proxies = []
+        dead_count = 0
+        
+        # Семафор для ограничения одновременных проверок
+        sem = asyncio.Semaphore(max_concurrent)
+        
+        async def check_one(proxy: str) -> Optional[str]:
+            async with sem:
+                is_alive = await self.check_proxy(proxy, timeout)
+                return proxy if is_alive else None
+        
+        # Проверяем все прокси параллельно
+        results = await asyncio.gather(*[check_one(p) for p in self.proxies])
+        
+        # Собираем живые прокси
+        for result in results:
+            if result:
+                alive_proxies.append(result)
+            else:
+                dead_count += 1
+        
+        # Обновляем список прокси (только живые)
+        self.proxies = alive_proxies
+        self.stats["valid_proxies"] = len(alive_proxies)
+        self.stats["invalid_proxies"] = dead_count
+        
+        return {
+            "total": total,
+            "alive": len(alive_proxies),
+            "dead": dead_count,
+            "alive_proxies": alive_proxies,
+        }
 
 
 # Глобальный менеджер прокси
@@ -243,6 +358,20 @@ def set_rotation_mode(mode: str):
 def reset():
     """Сбрасывает менеджер прокси"""
     _proxy_manager.reset()
+
+
+async def check_all_proxies(timeout: int = 10, max_concurrent: int = 50) -> dict:
+    """
+    Проверяет все загруженные прокси
+    
+    Args:
+        timeout: Таймаут для каждого прокси
+        max_concurrent: Максимум одновременных проверок
+    
+    Returns:
+        Статистика проверки
+    """
+    return await _proxy_manager.check_all_proxies(timeout, max_concurrent)
 
 
 # Примеры использования
