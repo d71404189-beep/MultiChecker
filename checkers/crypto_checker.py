@@ -51,6 +51,9 @@ from checkers.api_utils import (
 from checkers.ton_checker import check_ton_full
 from checkers.evm_multichain import check_evm_all_chains, format_multichain_message
 from checkers.balance_cache import global_balance_cache
+# v1.0.89: Новые модули
+from checkers.sol_staking import check_sol_staking, format_staking_message
+from checkers.wallet_exporter import global_wallet_exporter
 
 _WALLET_PATTERNS = [
     ("bitcoin",   re.compile(r'^(bc1|[13])[a-zA-HJ-NP-Z0-9]{25,62}$')),
@@ -224,9 +227,13 @@ class CryptoChecker(BaseChecker):
                 return result
             
             result = await self._dispatch(cleaned_data, timeout, proxy, session)
-            
+
             # Обновляем статистику сессии
             self._update_session_stats(result)
+
+            # v1.0.89: Автоматически сохраняем в экспортер если есть баланс
+            if result.get("exists"):
+                global_wallet_exporter.add_result(result)
             
         except UnicodeDecodeError as e:
             result["info"]["error"] = f"Encoding error: {str(e)}"
@@ -1516,11 +1523,19 @@ class CryptoChecker(BaseChecker):
             return ""
 
     async def _check_staking(self, address, timeout, proxy, session):
+        # ETH liquid staking (stETH, rETH)
         staking = {}
-        tokens = {"stETH": ("0xae7ab96520de3a18e5e111b5eaab095312d7fe84", 18), "rETH": ("0xae78736cd615f374d3085123a210448e74fc6393", 18)}
+        tokens = {
+            "stETH": ("0xae7ab96520de3a18e5e111b5eaab095312d7fe84", 18),
+            "rETH":  ("0xae78736cd615f374d3085123a210448e74fc6393", 18),
+            "cbETH": ("0xbe9895146f7af43049ca1c1ae358b0541ea49704", 18),
+            "wstETH":("0x7f39c581f595b53c5cb19bd0b3f8da6c935e2ca0", 18),
+            "sfrxETH":("0xac3e018457b222d93114458476f3e3416abbe38f", 18),
+        }
         for s, (c, d) in tokens.items():
             v = await self._check_evm_rpc_token(address, "https://cloudflare-eth.com", c, d, timeout, proxy, session)
-            if v > 0: staking[s] = v
+            if v > 0:
+                staking[s] = v
         return staking
 
     async def _get_last_tx_eth(self, address, timeout, proxy, session):
@@ -1689,20 +1704,38 @@ class CryptoChecker(BaseChecker):
                         formatted_balance = BalanceFormatter.format_balance_with_emoji(balance, "SOL", sol_price)
 
                         msg = f"Balance: {formatted_balance}"
-                        spl = await self._check_spl_tokens(address, timeout, proxy, session)
+
+                        # SPL токены и staking — параллельно
+                        spl, staking = await asyncio.gather(
+                            self._check_spl_tokens(address, timeout, proxy, session),
+                            check_sol_staking(address, timeout, proxy, session),
+                            return_exceptions=True
+                        )
+                        if isinstance(spl, Exception):     spl = {}
+                        if isinstance(staking, Exception): staking = {}
+
                         if spl:
                             result["info"]["spl_tokens"] = spl
                             result["exists"] = True
-                            # Показываем топ-5 токенов, остальные суммируем
                             top = sorted(spl.items(), key=lambda x: -x[1])[:5]
                             spl_str = ", ".join(f"{v} {k}" for k, v in top)
                             if len(spl) > 5:
                                 spl_str += f" +{len(spl)-5} ещё"
                             msg += f" | SPL: {spl_str}"
 
+                        # v1.0.89: Liquid staking
+                        if staking:
+                            result["info"]["sol_staking"] = staking
+                            result["exists"] = True
+                            staking_msg = format_staking_message(staking, sol_price)
+                            msg += staking_msg
+
                         if not result["exists"]:
                             msg += " (empty)"
                         result["info"]["message"] = msg
+
+                        # Сохраняем в кэш
+                        await global_balance_cache.set(address, "solana", result)
                         return result
                 elif resp:
                     api_errors.append(f"{api_name}: HTTP {resp.status}")

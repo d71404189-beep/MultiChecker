@@ -23,8 +23,8 @@ except ImportError:
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-# Установлена актуальная версия v1.0.88 - Important improvements
-APP_VERSION = "1.0.88"
+# Установлена актуальная версия v1.0.89 - Useful features
+APP_VERSION = "1.0.89"
 
 if platform.system() == "Windows":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -812,6 +812,15 @@ class MultiCheckerApp(ctk.CTk):
             btn_cex.pack(side="left", padx=2, pady=4)
             export_buttons.append(btn_cex)
             create_tooltip(btn_cex, "Экспорт биржевых аккаунтов с API ключами и балансами (TXT/CSV/JSON)")
+
+            # v1.0.89: Кнопка экспорта найденных кошельков с балансом
+            btn_found = ctk.CTkButton(eg, text="💰 FOUND", fg_color="transparent",
+                           hover_color=HOVER, font=("Segoe UI", 11, "bold"),
+                           text_color=GREEN, corner_radius=6, height=30, width=72,
+                           command=lambda: self.export_found_wallets(w))
+            btn_found.pack(side="left", padx=2, pady=4)
+            export_buttons.append(btn_found)
+            create_tooltip(btn_found, "Экспорт всех найденных кошельков с балансом (TXT/CSV/JSON/Seeds/Keys)")
         
         # Кнопка экспорта ВСЕХ ключей (даже с $0) - только для Crypto
         if tab_name == "Crypto":
@@ -1473,7 +1482,31 @@ class MultiCheckerApp(ctk.CTk):
 
         except Exception as e:
             self.log(w, f"❌ Ошибка экспорта: {e}")
-    def find_ultimate_accounts(self, w):
+
+    def export_found_wallets(self, w):
+        """v1.0.89: Экспорт всех найденных кошельков с балансом"""
+        from checkers.wallet_exporter import global_wallet_exporter
+
+        # Добавляем текущие результаты сессии
+        added = global_wallet_exporter.add_all(self.all_results)
+
+        if global_wallet_exporter.count == 0:
+            self.log(w, "❌ Кошельков с балансом не найдено.")
+            self.log(w, "   Запустите проверку — найденные кошельки сохранятся автоматически.")
+            return
+
+        self.log(w, f"💰 {global_wallet_exporter.summary()}")
+
+        try:
+            exported = global_wallet_exporter.export_all(prefix="found")
+            self.log(w, "─" * 50)
+            for filename, count in exported.items():
+                if count > 0:
+                    self.log(w, f"✅ {filename} ({count} записей)")
+            self.log(w, "─" * 50)
+            self.log(w, f"📁 Файлы сохранены в папку программы")
+        except Exception as e:
+            self.log(w, f"❌ Ошибка экспорта: {e}")
         """Найти аккаунты с seed/privkey И балансом (Ultimate Finder)"""
         if not self.all_results:
             self.log(w, "❌ Нет результатов для поиска!")
