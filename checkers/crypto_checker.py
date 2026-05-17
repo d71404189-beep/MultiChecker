@@ -197,13 +197,34 @@ class CryptoChecker(BaseChecker):
         if own_session:
             session = aiohttp.ClientSession()
         try:
-            result = await self._dispatch(data.strip(), timeout, proxy, session)
+            # Безопасная очистка данных
+            cleaned_data = data.strip() if data else ""
+            
+            # Проверка на пустые данные
+            if not cleaned_data:
+                result["info"]["error"] = "Empty input"
+                return result
+            
+            # Проверка на слишком длинные данные (защита от переполнения)
+            if len(cleaned_data) > 10000:
+                result["info"]["error"] = "Input too long (max 10000 characters)"
+                return result
+            
+            result = await self._dispatch(cleaned_data, timeout, proxy, session)
             
             # Обновляем статистику сессии
             self._update_session_stats(result)
             
+        except UnicodeDecodeError as e:
+            result["info"]["error"] = f"Encoding error: {str(e)}"
+        except ValueError as e:
+            result["info"]["error"] = f"Invalid value: {str(e)}"
         except Exception as e:
-            result["info"]["error"] = str(e)
+            result["info"]["error"] = f"Error: {str(e)}"
+            # Логируем для отладки
+            import traceback
+            print(f"❌ Error processing '{data[:50]}...': {e}")
+            print(traceback.format_exc())
         finally:
             if own_session:
                 await session.close()
@@ -1006,105 +1027,115 @@ class CryptoChecker(BaseChecker):
 
     def _detect_exchange(self, data):
         """Определить биржу по ключевым словам или email домену"""
-        dl = data.lower()
-        
-        # Проверяем ключевые слова бирж
-        for ex in self.exchanges:
-            if ex in dl:
-                return ex
-        
-        # НОВОЕ: Проверяем email домены бирж
-        # Формат: url:mail:pass или email:password
-        email_match = re.search(r'([a-zA-Z0-9._%+-]+@([a-zA-Z0-9.-]+\.[a-zA-Z]{2,}))', data)
-        if email_match:
-            email = email_match.group(1)
-            domain = email_match.group(2).lower()
+        try:
+            dl = data.lower()
             
-            # Маппинг доменов бирж
-            exchange_domains = {
-                "binance.com": "binance",
-                "bybit.com": "bybit",
-                "okx.com": "okx",
-                "huobi.com": "huobi",
-                "kucoin.com": "kucoin",
-                "gate.io": "gate",
-                "mexc.com": "mexc",
-                "bitget.com": "bitget",
-                "coinbase.com": "coinbase",
-                "kraken.com": "kraken",
-                "bitfinex.com": "bitfinex",
-            }
+            # Проверяем ключевые слова бирж
+            for ex in self.exchanges:
+                if ex in dl:
+                    return ex
             
-            for ex_domain, ex_name in exchange_domains.items():
-                if ex_domain in domain:
-                    return ex_name
+            # НОВОЕ: Проверяем email домены бирж
+            # Формат: url:mail:pass или email:password
+            email_match = re.search(r'([a-zA-Z0-9._%+-]+@([a-zA-Z0-9.-]+\.[a-zA-Z]{2,}))', data)
+            if email_match:
+                email = email_match.group(1)
+                domain = email_match.group(2).lower()
+                
+                # Маппинг доменов бирж
+                exchange_domains = {
+                    "binance.com": "binance",
+                    "bybit.com": "bybit",
+                    "okx.com": "okx",
+                    "huobi.com": "huobi",
+                    "kucoin.com": "kucoin",
+                    "gate.io": "gate",
+                    "mexc.com": "mexc",
+                    "bitget.com": "bitget",
+                    "coinbase.com": "coinbase",
+                    "kraken.com": "kraken",
+                    "bitfinex.com": "bitfinex",
+                }
+                
+                for ex_domain, ex_name in exchange_domains.items():
+                    if ex_domain in domain:
+                        return ex_name
+                
+                # Если есть email но биржа не определена, возвращаем "exchange" (generic)
+                return "exchange"
             
-            # Если есть email но биржа не определена, возвращаем "exchange" (generic)
-            return "exchange"
-        
-        return None
+            return None
+        except Exception as e:
+            # Логируем ошибку но не падаем
+            print(f"⚠️ Error in _detect_exchange: {e}")
+            return None
 
     def _parse_credentials(self, data):
         """Парсинг credentials из различных форматов"""
-        s = data.strip().replace("|", ":")
-        
-        # НОВОЕ: Специальная обработка url:mail:pass формата
-        url_pattern = re.compile(r'^(https?://[^\s:]+):')
-        url_match = url_pattern.match(s)
-        
-        if url_match:
-            # Формат: url:mail:pass
-            url = url_match.group(1)
-            remaining = s[len(url) + 1:]  # +1 для двоеточия
+        try:
+            s = data.strip().replace("|", ":")
             
-            # Парсим оставшуюся часть как mail:pass
-            parts = remaining.split(':', 1)  # Максимум 2 части
+            # НОВОЕ: Специальная обработка url:mail:pass формата
+            url_pattern = re.compile(r'^(https?://[^\s:]+):')
+            url_match = url_pattern.match(s)
             
-            if len(parts) >= 2:
-                login = parts[0].strip()
-                password = parts[1].strip()
-                return (login, password)
-            elif len(parts) == 1 and parts[0].strip():
-                # Есть только login после URL
-                return (parts[0].strip(), "")
-            else:
-                # После URL ничего нет - это просто URL без credentials
-                return ("", "")
-        
-        # ИСПРАВЛЕНО: Проверяем что это не просто URL без credentials
-        # Если строка начинается с http:// или https:// и не содержит @ после протокола
-        if s.startswith(("http://", "https://")):
-            # Проверяем есть ли email после URL
-            # Формат должен быть: http://site.com:email@domain.com:password
-            # Если нет @ после протокола, это просто URL
-            protocol_end = s.find("://") + 3
-            rest_of_url = s[protocol_end:]
+            if url_match:
+                # Формат: url:mail:pass
+                url = url_match.group(1)
+                remaining = s[len(url) + 1:]  # +1 для двоеточия
+                
+                # Парсим оставшуюся часть как mail:pass
+                parts = remaining.split(':', 1)  # Максимум 2 части
+                
+                if len(parts) >= 2:
+                    login = parts[0].strip()
+                    password = parts[1].strip()
+                    return (login, password)
+                elif len(parts) == 1 and parts[0].strip():
+                    # Есть только login после URL
+                    return (parts[0].strip(), "")
+                else:
+                    # После URL ничего нет - это просто URL без credentials
+                    return ("", "")
             
-            # Если в оставшейся части нет @, это просто URL
-            if "@" not in rest_of_url:
-                return ("", "")
-        
-        # СТАНДАРТНАЯ ОБРАБОТКА: email:password или exchange:login:password
-        tokens = [t.strip() for t in s.split(":") if t.strip()]
-        
-        # Если 3 токена и первый - название биржи (не содержит @ и .)
-        if len(tokens) == 3 and "@" not in tokens[0] and "." not in tokens[0]:
-            # Формат: exchange:login:password
-            # Пропускаем первый токен (название биржи)
-            return (tokens[1], tokens[2])
-        
-        # Если 2 токена
-        if len(tokens) == 2:
-            # Формат: email:password или login:password
-            return (tokens[0], tokens[1])
-        
-        # Если 1 токен и это email
-        if len(tokens) == 1 and "@" in tokens[0]:
-            # Формат: только email
-            return (tokens[0], "")
-        
-        # Иначе - нет credentials
-        return ("", "")
+            # ИСПРАВЛЕНО: Проверяем что это не просто URL без credentials
+            # Если строка начинается с http:// или https:// и не содержит @ после протокола
+            if s.startswith(("http://", "https://")):
+                # Проверяем есть ли email после URL
+                # Формат должен быть: http://site.com:email@domain.com:password
+                # Если нет @ после протокола, это просто URL
+                protocol_end = s.find("://") + 3
+                rest_of_url = s[protocol_end:]
+                
+                # Если в оставшейся части нет @, это просто URL
+                if "@" not in rest_of_url:
+                    return ("", "")
+            
+            # СТАНДАРТНАЯ ОБРАБОТКА: email:password или exchange:login:password
+            tokens = [t.strip() for t in s.split(":") if t.strip()]
+            
+            # Если 3 токена и первый - название биржи (не содержит @ и .)
+            if len(tokens) == 3 and "@" not in tokens[0] and "." not in tokens[0]:
+                # Формат: exchange:login:password
+                # Пропускаем первый токен (название биржи)
+                return (tokens[1], tokens[2])
+            
+            # Если 2 токена
+            if len(tokens) == 2:
+                # Формат: email:password или login:password
+                return (tokens[0], tokens[1])
+            
+            # Если 1 токен и это email
+            if len(tokens) == 1 and "@" in tokens[0]:
+                # Формат: только email
+                return (tokens[0], "")
+            
+            # Иначе - нет credentials
+            return ("", "")
+        except Exception as e:
+            # Логируем ошибку но не падаем
+            print(f"⚠️ Error in _parse_credentials: {e}")
+            return ("", "")
 
     async def _check_bitcoin(self, address, timeout, proxy, session):
         result = self.make_result(input=address, type="wallet", wallet_type="bitcoin", valid=True)
