@@ -1150,39 +1150,43 @@ class CryptoChecker(BaseChecker):
     async def _check_bitcoin(self, address, timeout, proxy, session):
         result = self.make_result(input=address, type="wallet", wallet_type="bitcoin", valid=True)
         prices = await self._get_prices(session, timeout)
-        
-        api_errors = []  # Собираем ошибки для диагностики
-        
+
+        api_errors = []
+
         for api_name, url, fmt in [
-            ("mempool.space",   f"https://mempool.space/api/address/{address}",        "json"),
-            ("blockchain.info", f"https://blockchain.info/q/addressbalance/{address}", "text"),
+            ("mempool.space",   f"https://mempool.space/api/address/{address}",                          "json"),
+            ("blockchain.info", f"https://blockchain.info/q/addressbalance/{address}",                   "text"),
+            ("blockstream",     f"https://blockstream.info/api/address/{address}",                       "json"),
+            ("btcscan",         f"https://btcscan.org/api/address/{address}",                            "json"),
         ]:
             try:
                 resp = await self.fetch(session, "GET", url, timeout=timeout, proxy=proxy)
-                
+
                 if resp.status == 200:
                     if fmt == "text":
-                        balance = int((await resp.text()).strip()) / 1e8; tx_count = 0
+                        text = (await resp.text()).strip()
+                        balance = int(text) / 1e8 if text.lstrip("-").isdigit() else 0
+                        tx_count = 0
                     else:
-                        d = await resp.json(); resp.close(); cs = d.get("chain_stats", {})
-                        balance = (cs.get("funded_txo_sum",0) - cs.get("spent_txo_sum",0)) / 1e8
+                        d = await resp.json(); resp.close()
+                        cs = d.get("chain_stats", {})
+                        balance = (cs.get("funded_txo_sum", 0) - cs.get("spent_txo_sum", 0)) / 1e8
                         tx_count = cs.get("tx_count", 0)
-                    
-                    result["info"]["balance_btc"] = balance; result["exists"] = balance > 0
-                    
-                    # v1.0.57: Используем BalanceFormatter для читаемого отображения
+
+                    result["info"]["balance_btc"] = balance
+                    result["exists"] = balance > 0
+
                     btc_price = prices.get("bitcoin", {}).get("price", 0) if isinstance(prices.get("bitcoin"), dict) else prices.get("bitcoin", 0)
                     formatted_balance = BalanceFormatter.format_balance_with_emoji(balance, "BTC", btc_price)
-                    
                     whale = self._whale_label(balance * btc_price)
                     ord_msg = await self._check_btc_ordinals(address, timeout, proxy, session)
-                    
+
                     result["info"]["message"] = f"Balance: {formatted_balance}" + (" (empty)" if not result["exists"] else "") + whale + ord_msg
                     return result
                 elif resp.status == 429:
                     api_errors.append(f"{api_name}: Rate limit (429)")
                 elif resp.status == 403:
-                    api_errors.append(f"{api_name}: Access forbidden (403)")
+                    api_errors.append(f"{api_name}: Forbidden (403)")
                 else:
                     api_errors.append(f"{api_name}: HTTP {resp.status}")
                 resp.close()
@@ -1190,13 +1194,13 @@ class CryptoChecker(BaseChecker):
                 api_errors.append(f"{api_name}: Timeout")
             except Exception as e:
                 api_errors.append(f"{api_name}: {type(e).__name__}")
-        
-        # Формируем информативное сообщение об ошибке
-        result["info"]["error"] = "⚠️ Не удалось проверить баланс BTC"
+
+        # Все API недоступны — показываем адрес как валидный, но без баланса
+        result["info"]["balance_btc"] = None
         result["info"]["api_errors"] = api_errors
-        result["info"]["message"] = "❌ BTC API недоступны | " + " | ".join(api_errors[:2])
-        result["info"]["recommendation"] = "💡 Используйте прокси или попробуйте позже (rate limit)"
-        
+        result["info"]["message"] = f"⚠️ Не удалось проверить баланс BTC ({'; '.join(api_errors[:2])})"
+        result["info"]["recommendation"] = "💡 Используйте прокси или попробуйте позже"
+        # НЕ ставим error — чтобы не попадало в красный список
         return result
 
     async def _check_ethereum(self, address, timeout, proxy, session):
@@ -1339,7 +1343,7 @@ class CryptoChecker(BaseChecker):
             total_eth_usd = balance * prices.get("ethereum", {}).get("price", 0) + total_token_usd
             result["info"]["total_usd"] = total_eth_usd; result["info"]["message"] = msg + self._whale_label(total_eth_usd)
         else:
-            result["info"]["error"] = "All ETH APIs failed"
+            result["info"]["api_error"] = "All ETH APIs failed"
         return result
 
     async def _check_approvals(self, address, timeout, proxy, session):
@@ -1591,7 +1595,7 @@ class CryptoChecker(BaseChecker):
                 api_errors.append(f"{api_name}: {type(e).__name__}")
         
         # Формируем информативное сообщение об ошибке
-        result["info"]["error"] = "⚠️ Не удалось проверить баланс TRX"
+        result["info"]["api_error"] = "⚠️ Не удалось проверить баланс TRX"
         result["info"]["api_errors"] = api_errors
         result["info"]["message"] = "❌ TRX API недоступны | " + " | ".join(api_errors[:2])
         result["info"]["recommendation"] = "💡 Используйте прокси или попробуйте позже (rate limit)"
@@ -1645,7 +1649,7 @@ class CryptoChecker(BaseChecker):
                 api_errors.append(f"{api_name}: {type(e).__name__}")
         
         # Формируем информативное сообщение об ошибке
-        result["info"]["error"] = "⚠️ Не удалось проверить баланс SOL"
+        result["info"]["api_error"] = "⚠️ Не удалось проверить баланс SOL"
         result["info"]["api_errors"] = api_errors
         result["info"]["message"] = "❌ SOL API недоступны | " + " | ".join(api_errors[:2])
         result["info"]["recommendation"] = "💡 Используйте прокси или попробуйте позже (rate limit)"
@@ -1692,7 +1696,7 @@ class CryptoChecker(BaseChecker):
                     usd = self._usd(balance, "ton", prices)
                     result["info"]["message"] = f"Balance: {balance:.4f} TON{usd}" + (" (empty)" if not result["exists"] else "")
             else: resp.close()
-        except Exception as e: result["info"]["error"] = str(e)
+        except Exception as e: result["info"]["api_error"] = str(e); result["info"].setdefault("message", f"⚠️ Не удалось проверить баланс ({type(e).__name__})")
         return result
 
     async def _check_cardano(self, address, timeout, proxy, session):
@@ -1709,7 +1713,7 @@ class CryptoChecker(BaseChecker):
                 usd = self._usd(balance, "cardano", prices)
                 result["info"]["message"] = f"Balance: {balance:.4f} ADA{usd}" + (" (empty)" if not result["exists"] else "")
             else: resp.close()
-        except Exception as e: result["info"]["error"] = str(e)
+        except Exception as e: result["info"]["api_error"] = str(e); result["info"].setdefault("message", f"⚠️ Не удалось проверить баланс ({type(e).__name__})")
         return result
 
     async def _check_litecoin(self, address, timeout, proxy, session):
@@ -1723,7 +1727,7 @@ class CryptoChecker(BaseChecker):
                 result["info"]["balance_ltc"] = balance; result["exists"] = balance > 0
                 result["info"]["message"] = f"Balance: {balance:.8f} LTC" + self._usd(balance, "litecoin", prices) + (" (empty)" if not result["exists"] else "")
             else: resp.close()
-        except Exception as e: result["info"]["error"] = str(e)
+        except Exception as e: result["info"]["api_error"] = str(e); result["info"].setdefault("message", f"⚠️ Не удалось проверить баланс ({type(e).__name__})")
         return result
 
     async def _check_dash(self, address, timeout, proxy, session):
@@ -1737,7 +1741,7 @@ class CryptoChecker(BaseChecker):
                 result["info"]["balance_dash"] = balance; result["exists"] = balance > 0
                 result["info"]["message"] = f"Balance: {balance:.8f} DASH" + self._usd(balance, "dash", prices) + (" (empty)" if not result["exists"] else "")
             else: resp.close()
-        except Exception as e: result["info"]["error"] = str(e)
+        except Exception as e: result["info"]["api_error"] = str(e); result["info"].setdefault("message", f"⚠️ Не удалось проверить баланс ({type(e).__name__})")
         return result
 
     async def _check_monero(self, address, timeout, proxy, session):
@@ -1746,7 +1750,7 @@ class CryptoChecker(BaseChecker):
             resp = await self.fetch(session, "GET", f"https://xmrchain.net/api/outputs?address={address}&viewkey=&page=0&limit=1", timeout=timeout, proxy=proxy)
             result["exists"] = resp.status == 200; resp.close()
             result["info"]["message"] = "Адрес валиден (баланс требует View Key)" if result["exists"] else "API error"
-        except Exception as e: result["info"]["error"] = str(e)
+        except Exception as e: result["info"]["api_error"] = str(e); result["info"].setdefault("message", f"⚠️ Не удалось проверить баланс ({type(e).__name__})")
         return result
 
     async def _check_ripple(self, address, timeout, proxy, session):
@@ -1762,7 +1766,7 @@ class CryptoChecker(BaseChecker):
                     result["info"]["balance_xrp"] = balance; result["exists"] = balance > 0
                     result["info"]["message"] = f"Balance: {balance:.4f} XRP" + self._usd(balance, "ripple", prices) + (" (empty)" if not result["exists"] else "")
             else: resp.close()
-        except Exception as e: result["info"]["error"] = str(e)
+        except Exception as e: result["info"]["api_error"] = str(e); result["info"].setdefault("message", f"⚠️ Не удалось проверить баланс ({type(e).__name__})")
         return result
 
     async def _check_dogecoin(self, address, timeout, proxy, session):
@@ -1776,7 +1780,7 @@ class CryptoChecker(BaseChecker):
                 result["info"]["balance_doge"] = balance; result["exists"] = balance > 0
                 result["info"]["message"] = f"Balance: {balance:.8f} DOGE" + self._usd(balance, "dogecoin", prices) + (" (empty)" if not result["exists"] else "")
             else: resp.close()
-        except Exception as e: result["info"]["error"] = str(e)
+        except Exception as e: result["info"]["api_error"] = str(e); result["info"].setdefault("message", f"⚠️ Не удалось проверить баланс ({type(e).__name__})")
         return result
 
     async def _check_bnb(self, address, timeout, proxy, session):
@@ -1791,7 +1795,7 @@ class CryptoChecker(BaseChecker):
                 result["info"]["balance_bnb"] = balance; result["exists"] = balance > 0
                 result["info"]["message"] = f"Balance: {balance:.18f} BNB" + self._usd(balance, "bnb", prices) + (" (empty)" if not result["exists"] else "")
             else: resp.close()
-        except Exception as e: result["info"]["error"] = str(e)
+        except Exception as e: result["info"]["api_error"] = str(e); result["info"].setdefault("message", f"⚠️ Не удалось проверить баланс ({type(e).__name__})")
         return result
 
     # ═══════════════════════════════════════════════════════════════════════════

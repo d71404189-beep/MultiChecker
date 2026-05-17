@@ -2108,8 +2108,10 @@ class MultiCheckerApp(ctk.CTk):
                                     self.after(0, lambda n=sv["service"],m2=sv.get("message",""): self.log_tagged(
                                         w,"valid",f"      • {n}: {m2}"))
                         else:
+                            # api_error = недоступность API (не ошибка данных)
+                            # показываем в невалидных с предупреждением ⚠️
                             inv[0] += 1
-                            msg = res.get("info",{}).get("message","Not found")
+                            msg = res.get("info",{}).get("message") or res.get("info",{}).get("api_error","Not found")
                             self.after(0, lambda t=tag,i=inp,m=msg: self.log_tagged(
                                 w,"invalid",f"[-] [{t}] {i} — {m}"))
                     
