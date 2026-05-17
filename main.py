@@ -23,8 +23,8 @@ except ImportError:
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-# Установлена актуальная версия v1.0.90 - Auto Save + Auto Shutdown
-APP_VERSION = "1.0.90"
+# Установлена актуальная версия v1.0.91 - UI Layout fix
+APP_VERSION = "1.0.91"
 
 if platform.system() == "Windows":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -686,18 +686,27 @@ class MultiCheckerApp(ctk.CTk):
             w["swap_dex"].set("Uniswap")
             w["swap_dex"].grid(row=0, column=7, padx=(0, 10), pady=8, sticky="w")
 
-        # 🎨 Улучшенные кнопки действий с иконками и градиентами
+        # 🎨 Улучшенные кнопки действий — две строки
         bf = ctk.CTkFrame(body, fg_color="transparent")
-        bf.grid(row=4 if tab_name == "Crypto" else 2, column=0, padx=16, pady=8, sticky="ew")
+        bf.grid(row=4 if tab_name == "Crypto" else 2, column=0, padx=16, pady=(4,2), sticky="ew")
+        bf.grid_columnconfigure(0, weight=1)
+
+        # ── Строка 1: Управление ──────────────────────────────────────────
+        row1 = ctk.CTkFrame(bf, fg_color="transparent")
+        row1.grid(row=0, column=0, sticky="ew", pady=(0, 3))
+
+        # ── Строка 2: Экспорт ─────────────────────────────────────────────
+        row2 = ctk.CTkFrame(bf, fg_color="transparent")
+        row2.grid(row=1, column=0, sticky="ew")
 
         def btn(parent, text, fg, hv, cmd, width=None, icon=""):
             """Создать красивую кнопку с иконкой"""
             display_text = f"{icon}  {text}" if icon else text
             kw = dict(
-                text=display_text, 
-                fg_color=fg, 
+                text=display_text,
+                fg_color=fg,
                 hover_color=hv,
-                font=("Segoe UI", 13, "bold"), 
+                font=("Segoe UI", 12, "bold"),
                 corner_radius=10, 
                 height=42, 
                 command=cmd,
@@ -707,29 +716,29 @@ class MultiCheckerApp(ctk.CTk):
                 kw["width"] = width
             return ctk.CTkButton(parent, **kw)
 
-        # Основные кнопки с улучшенным дизайном
-        btn_start = btn(bf, "Старт", GREEN, GREEN2, lambda: self.start_check(tab_name), 150, "▶")
-        btn_start.pack(side="left", padx=(0,8))
+        # ── Строка 1: Основные кнопки управления ─────────────────────────
+        btn_start = btn(row1, "Старт", GREEN, GREEN2, lambda: self.start_check(tab_name), 130, "▶")
+        btn_start.pack(side="left", padx=(0,4))
+
+        btn_stop = btn(row1, "Стоп", RED, RED2, self.stop_check, 100, "■")
+        btn_stop.pack(side="left", padx=(0,4))
+
+        btn_clear = btn(row1, "Очистить", CARD, HOVER, lambda: self.clear_output(w), 110, "🗑")
+        btn_clear.pack(side="left", padx=(0,4))
+
+        btn_file = btn(row1, "Файл", CYAN, CYAN2, lambda: self.import_file(w), 100, "📁")
+        btn_file.pack(side="left", padx=(0,4))
+
+        btn_paste = btn(row1, "", PURPLE, PURPLE2, lambda: self._paste_clipboard(w), 42, "📋")
+        btn_paste.pack(side="left", padx=(0,4))
+
+        btn_dupes = btn(row1, "Дубли", PURPLE, PURPLE2, lambda: self.remove_duplicates(w), 100, "⊘")
+        btn_dupes.pack(side="left", padx=(0,4))
+
+        btn_dump = btn(row1, "ДАМП", ORANGE, ORANGE2, lambda: self.parse_dump(w), 110, "📋")
+        btn_dump.pack(side="left", padx=(0,4))
         
-        btn_stop = btn(bf, "Стоп", RED, RED2, self.stop_check, 120, "■")
-        btn_stop.pack(side="left", padx=(0,8))
-        
-        btn_clear = btn(bf, "Очистить", CARD, HOVER, lambda: self.clear_output(w), 130, "🗑")
-        btn_clear.pack(side="left", padx=(0,8))
-        
-        btn_file = btn(bf, "Файл", CYAN, CYAN2, lambda: self.import_file(w), 120, "📁")
-        btn_file.pack(side="left", padx=(0,8))
-        
-        btn_paste = btn(bf, "", PURPLE, PURPLE2, lambda: self._paste_clipboard(w), 50, "📋")
-        btn_paste.pack(side="left", padx=(0,8))
-        
-        btn_dupes = btn(bf, "Дубли", PURPLE, PURPLE2, lambda: self.remove_duplicates(w), 120, "⊘")
-        btn_dupes.pack(side="left", padx=(0,8))
-        
-        btn_dump = btn(bf, "ДАМП", ORANGE, ORANGE2, lambda: self.parse_dump(w), 130, "📋")
-        btn_dump.pack(side="left", padx=(0,8))
-        
-        # Добавляем tooltips для кнопок
+        # Tooltips строки 1
         create_tooltip(btn_start, "Запустить проверку данных")
         create_tooltip(btn_stop, "Остановить текущую проверку")
         create_tooltip(btn_clear, "Очистить поле вывода")
@@ -738,11 +747,9 @@ class MultiCheckerApp(ctk.CTk):
         create_tooltip(btn_dupes, "Удалить дубликаты из списка")
         create_tooltip(btn_dump, "Парсить дамп (email:pass:seed, user|pass|key и т.д.)")
 
-        # v1.0.90: Чекбокс автовыключения ПК
-        shutdown_frame = ctk.CTkFrame(bf, fg_color="transparent")
-        shutdown_frame.pack(side="left", padx=(12, 0))
+        # v1.0.90: Чекбокс автовыключения ПК — в строке 1 справа
         w["auto_shutdown"] = ctk.CTkCheckBox(
-            shutdown_frame,
+            row1,
             text="⏻ Выкл. ПК",
             font=("Segoe UI", 11, "bold"),
             text_color=YELLOW,
@@ -752,148 +759,147 @@ class MultiCheckerApp(ctk.CTk):
             width=16, height=16,
             corner_radius=4,
         )
-        w["auto_shutdown"].pack(side="left")
+        w["auto_shutdown"].pack(side="left", padx=(12, 0))
         create_tooltip(w["auto_shutdown"],
             "После завершения сканирования:\n"
             "1. Автосохранение всех результатов\n"
             "2. Выключение ПК через 60 секунд"
         )
 
-        # 🎨 Красивая панель экспорта
-        eg = ctk.CTkFrame(bf, fg_color=CARD, corner_radius=12, border_width=1, border_color=BORDER)
-        eg.pack(side="left", padx=(12, 0))
-        
-        export_header = ctk.CTkFrame(eg, fg_color="transparent")
-        export_header.pack(side="left", padx=12, pady=8)
-        ctk.CTkLabel(export_header, text="💾 Экспорт:", font=("Segoe UI", 12, "bold"),
-                     text_color=TEXT2).pack(side="left", padx=(0, 8))
-        
+        # ── Строка 2: Экспорт ─────────────────────────────────────────────
+        eg = row2
+
+        # Лейбл
+        ctk.CTkLabel(eg, text="💾", font=("Segoe UI", 13),
+                     text_color=TEXT2).pack(side="left", padx=(0, 4))
+
         # Кнопки экспорта с сохранением ссылок для tooltips
         export_buttons = []
-        
+
         export_formats = [
-            ("txt", "TXT", ACCENT),
-            ("json", "JSON", CYAN),
-            ("csv", "CSV", GREEN),
-            ("xlsx", "EXCEL", PURPLE)
+            ("txt",  "TXT",   ACCENT),
+            ("json", "JSON",  CYAN),
+            ("csv",  "CSV",   GREEN),
+            ("xlsx", "EXCEL", PURPLE),
         ]
-        
+
         for fmt, lbl_text, color in export_formats:
             btn_export = ctk.CTkButton(
-                eg, text=lbl_text, 
+                eg, text=lbl_text,
                 fg_color="transparent",
-                hover_color=color, 
+                hover_color=color,
                 font=("Segoe UI", 11, "bold"),
-                text_color=color, 
-                corner_radius=8, 
-                height=32, 
-                width=60,
+                text_color=color,
+                corner_radius=6,
+                height=28,
+                width=52,
                 border_width=1,
                 border_color=color,
                 command=lambda f=fmt: self.export_results(w, f)
             )
-            btn_export.pack(side="left", padx=3, pady=4)
+            btn_export.pack(side="left", padx=2, pady=2)
             export_buttons.append(btn_export)
 
         btn_balance = ctk.CTkButton(eg, text="$", fg_color="transparent",
                        hover_color=HOVER, font=("Segoe UI", 11, "bold"),
-                       text_color=GREEN, corner_radius=6, height=30, width=36,
+                       text_color=GREEN, corner_radius=6, height=28, width=30,
                        command=lambda: self.export_balance_only(w))
-        btn_balance.pack(side="left", padx=2, pady=4)
+        btn_balance.pack(side="left", padx=2, pady=2)
         export_buttons.append(btn_balance)
-        
+
         # Кнопки ручного раздельного сохранения Сид-фраз и Приватных ключей
-        btn_seed = ctk.CTkButton(eg, text="🌱 SEED", fg_color="transparent",
+        btn_seed = ctk.CTkButton(eg, text="SEED", fg_color="transparent",
                        hover_color=HOVER, font=("Segoe UI", 11, "bold"),
-                       text_color=PURPLE, corner_radius=6, height=30, width=64,
+                       text_color=PURPLE, corner_radius=6, height=28, width=50,
                        command=lambda: self.export_by_type(w, "seed"))
-        btn_seed.pack(side="left", padx=2, pady=4)
+        btn_seed.pack(side="left", padx=2, pady=2)
         export_buttons.append(btn_seed)
 
-        btn_key = ctk.CTkButton(eg, text="🔑 KEY", fg_color="transparent",
+        btn_key = ctk.CTkButton(eg, text="KEY", fg_color="transparent",
                        hover_color=HOVER, font=("Segoe UI", 11, "bold"),
-                       text_color=ORANGE, corner_radius=6, height=30, width=60,
+                       text_color=ORANGE, corner_radius=6, height=28, width=46,
                        command=lambda: self.export_by_type(w, "privkey"))
-        btn_key.pack(side="left", padx=2, pady=4)
+        btn_key.pack(side="left", padx=2, pady=2)
         export_buttons.append(btn_key)
-        
+
         # Кнопка экспорта аккаунтов с возможностью авторизации
-        btn_auth = ctk.CTkButton(eg, text="🔐 AUTH", fg_color="transparent",
+        btn_auth = ctk.CTkButton(eg, text="AUTH", fg_color="transparent",
                        hover_color=HOVER, font=("Segoe UI", 11, "bold"),
-                       text_color="#3fb950", corner_radius=6, height=30, width=64,
+                       text_color="#3fb950", corner_radius=6, height=28, width=50,
                        command=lambda: self.export_auth_accounts(w))
-        btn_auth.pack(side="left", padx=2, pady=4)
+        btn_auth.pack(side="left", padx=2, pady=2)
         export_buttons.append(btn_auth)
 
         # v1.0.85: Кнопка экспорта биржевых аккаунтов (API ключи с балансом)
         if tab_name == "Crypto":
-            btn_cex = ctk.CTkButton(eg, text="🏦 CEX", fg_color="transparent",
+            btn_cex = ctk.CTkButton(eg, text="CEX", fg_color="transparent",
                            hover_color=HOVER, font=("Segoe UI", 11, "bold"),
-                           text_color=CYAN, corner_radius=6, height=30, width=60,
+                           text_color=CYAN, corner_radius=6, height=28, width=44,
                            command=lambda: self.export_exchange_accounts(w))
-            btn_cex.pack(side="left", padx=2, pady=4)
+            btn_cex.pack(side="left", padx=2, pady=2)
             export_buttons.append(btn_cex)
             create_tooltip(btn_cex, "Экспорт биржевых аккаунтов с API ключами и балансами (TXT/CSV/JSON)")
 
             # v1.0.89: Кнопка экспорта найденных кошельков с балансом
-            btn_found = ctk.CTkButton(eg, text="💰 FOUND", fg_color="transparent",
-                           hover_color=HOVER, font=("Segoe UI", 11, "bold"),
-                           text_color=GREEN, corner_radius=6, height=30, width=72,
+            btn_found = ctk.CTkButton(eg, text="💰", fg_color="transparent",
+                           hover_color=HOVER, font=("Segoe UI", 13, "bold"),
+                           text_color=GREEN, corner_radius=6, height=28, width=36,
                            command=lambda: self.export_found_wallets(w))
-            btn_found.pack(side="left", padx=2, pady=4)
+            btn_found.pack(side="left", padx=2, pady=2)
             export_buttons.append(btn_found)
             create_tooltip(btn_found, "Экспорт всех найденных кошельков с балансом (TXT/CSV/JSON/Seeds/Keys)")
         
         # Кнопка экспорта ВСЕХ ключей (даже с $0) - только для Crypto
         if tab_name == "Crypto":
-            btn_empty_keys = ctk.CTkButton(eg, text="🔑 ALL", fg_color="transparent",
+            btn_empty_keys = ctk.CTkButton(eg, text="ALL", fg_color="transparent",
                            hover_color=HOVER, font=("Segoe UI", 11, "bold"),
-                           text_color=YELLOW, corner_radius=6, height=30, width=60,
+                           text_color=YELLOW, corner_radius=6, height=28, width=40,
                            command=lambda: self.export_empty_keys(w))
-            btn_empty_keys.pack(side="left", padx=2, pady=4)
+            btn_empty_keys.pack(side="left", padx=2, pady=2)
             export_buttons.append(btn_empty_keys)
             create_tooltip(btn_empty_keys, "Экспорт ВСЕХ приватных ключей (даже с $0)")
-        
-        # Добавляем tooltips для кнопок экспорта
-        create_tooltip(export_buttons[0], "Экспорт результатов в TXT файл")
-        create_tooltip(export_buttons[1], "Экспорт результатов в JSON файл")
-        create_tooltip(export_buttons[2], "Экспорт результатов в CSV файл")
-        create_tooltip(export_buttons[3], "Экспорт результатов в Excel файл")
-        create_tooltip(export_buttons[4], "Экспорт только аккаунтов с балансом")
-        create_tooltip(export_buttons[5], "Экспорт только seed фраз")
-        create_tooltip(export_buttons[6], "Экспорт только приватных ключей")
-        create_tooltip(export_buttons[7], "Экспорт аккаунтов с auth данными (seed/privkey/email:pass)")
 
-        btn_stats = btn(bf, "◈  Стат", PURPLE, "#a371f7",
-            lambda: self.show_stats(tab_name), 110)
-        btn_stats.pack(side="right", padx=(0, 6))
+        # Tooltips для кнопок экспорта
+        _tips = [
+            "Экспорт результатов в TXT файл",
+            "Экспорт результатов в JSON файл",
+            "Экспорт результатов в CSV файл",
+            "Экспорт результатов в Excel файл",
+            "Экспорт только аккаунтов с балансом",
+            "Экспорт только seed фраз",
+            "Экспорт только приватных ключей",
+            "Экспорт аккаунтов с auth данными (seed/privkey/email:pass)",
+        ]
+        for i, tip in enumerate(_tips):
+            if i < len(export_buttons):
+                create_tooltip(export_buttons[i], tip)
+
+        # Кнопки справа в строке 1: Стат, DEFI, AIRDROP, NFT, ULTIMATE
+        btn_stats = btn(row1, "Стат", PURPLE, "#a371f7",
+            lambda: self.show_stats(tab_name), 80)
+        btn_stats.pack(side="right", padx=(0, 4))
         create_tooltip(btn_stats, "Показать детальную статистику проверки")
-        
-        # Дополнительные кнопки для Crypto чекера
+
         if tab_name == "Crypto":
-            # DeFi Positions
-            btn_defi = btn(bf, "📊 DEFI", "#10b981", "#34d399",
-                lambda: self.check_defi_positions(w), 110)
-            btn_defi.pack(side="right", padx=(0, 6))
-            create_tooltip(btn_defi, "Проверить DeFi позиции (Lido, Aave, Uniswap)")
-            
-            # Airdrop Hunter
-            btn_airdrop = btn(bf, "🪂 AIRDROP", "#8b5cf6", "#a78bfa",
-                lambda: self.check_airdrops(w), 130)
-            btn_airdrop.pack(side="right", padx=(0, 6))
-            create_tooltip(btn_airdrop, "Проверить eligibility для аирдропов")
-            
-            # NFT Checker
-            btn_nft = btn(bf, "🖼️ NFT", "#ec4899", "#f472b6",
-                lambda: self.check_nfts(w), 110)
-            btn_nft.pack(side="right", padx=(0, 6))
-            create_tooltip(btn_nft, "Проверить NFT коллекции и их стоимость")
-            
-            # Ultimate Finder
-            btn_ultimate = btn(bf, "🎯 ULTIMATE", "#d29922", "#b8821e",
-                lambda: self.find_ultimate_accounts(w), 130)
-            btn_ultimate.pack(side="right", padx=(0, 6))
+            btn_ultimate = btn(row1, "ULTIMATE", "#d29922", "#b8821e",
+                lambda: self.find_ultimate_accounts(w), 100)
+            btn_ultimate.pack(side="right", padx=(0, 4))
             create_tooltip(btn_ultimate, "Найти аккаунты с seed/privkey И балансом")
+
+            btn_nft = btn(row1, "NFT", "#ec4899", "#f472b6",
+                lambda: self.check_nfts(w), 70)
+            btn_nft.pack(side="right", padx=(0, 4))
+            create_tooltip(btn_nft, "Проверить NFT коллекции и их стоимость")
+
+            btn_airdrop = btn(row1, "AIRDROP", "#8b5cf6", "#a78bfa",
+                lambda: self.check_airdrops(w), 90)
+            btn_airdrop.pack(side="right", padx=(0, 4))
+            create_tooltip(btn_airdrop, "Проверить eligibility для аирдропов")
+
+            btn_defi = btn(row1, "DEFI", "#10b981", "#34d399",
+                lambda: self.check_defi_positions(w), 76)
+            btn_defi.pack(side="right", padx=(0, 4))
+            create_tooltip(btn_defi, "Проверить DeFi позиции (Lido, Aave, Uniswap)")
 
         cr = ctk.CTkFrame(body, fg_color="transparent")
         cr.grid(row=5 if tab_name == "Crypto" else 3, column=0, padx=16, pady=6, sticky="ew")
