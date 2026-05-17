@@ -23,8 +23,8 @@ except ImportError:
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-# Установлена актуальная версия v1.0.70
-APP_VERSION = "1.0.70"
+# Установлена актуальная версия v1.0.71
+APP_VERSION = "1.0.71"
 
 if platform.system() == "Windows":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -37,6 +37,7 @@ from checkers.ai_checker import AIChecker
 from checkers.balance_formatter import BalanceFormatter, LogColorizer, BalanceHighlighter
 from checkers.dump_parser import DumpParser
 from checkers.proxy_manager import ProxyManager, load_proxies, get_next_proxy, get_proxy_count, get_stats as get_proxy_stats, reset as reset_proxies, check_all_proxies
+from checkers.ultimate_finder import UltimateAccountFinder
 import i18n
 
 ctk.set_appearance_mode("dark")
@@ -653,8 +654,15 @@ class MultiCheckerApp(ctk.CTk):
 
         btn_stats = btn(bf, "◈  Стат", PURPLE, "#a371f7",
             lambda: self.show_stats(tab_name), 110)
-        btn_stats.pack(side="right")
+        btn_stats.pack(side="right", padx=(0, 6))
         create_tooltip(btn_stats, "Показать детальную статистику проверки")
+        
+        # Кнопка Ultimate Finder (только для Crypto)
+        if tab_name == "Crypto":
+            btn_ultimate = btn(bf, "🎯 ULTIMATE", "#d29922", "#b8821e",
+                lambda: self.find_ultimate_accounts(w), 130)
+            btn_ultimate.pack(side="right")
+            create_tooltip(btn_ultimate, "Найти аккаунты с seed/privkey И балансом")
 
         cr = ctk.CTkFrame(body, fg_color="transparent")
         cr.grid(row=5 if tab_name == "Crypto" else 3, column=0, padx=16, pady=6, sticky="ew")
@@ -1190,6 +1198,235 @@ class MultiCheckerApp(ctk.CTk):
                 self.log(w, f"   • {auth_type}: {count} шт. (${balance:,.2f})")
             
             self.log(w, "="*50)
+        
+        except Exception as e:
+            self.log(w, f"❌ Ошибка экспорта: {e}")
+    
+    def find_ultimate_accounts(self, w):
+        """Найти аккаунты с seed/privkey И балансом (Ultimate Finder)"""
+        if not self.all_results:
+            self.log(w, "❌ Нет результатов для поиска!")
+            self.log(w, "   Сначала запустите проверку аккаунтов")
+            return
+        
+        self.log(w, "\n" + "="*70)
+        self.log(w, "🎯 ULTIMATE ACCOUNT FINDER - ПОИСК ЦЕННЫХ АККАУНТОВ")
+        self.log(w, "="*70)
+        self.log(w, "🔍 Сканирование результатов...")
+        
+        # Создаем finder
+        finder = UltimateAccountFinder()
+        
+        # Фильтруем только валидные результаты с балансом
+        accounts_with_balance = []
+        accounts_with_auth = []
+        
+        for result in self.all_results:
+            if result.get("status") != "valid":
+                continue
+            
+            info = result.get("info", {})
+            
+            # Проверяем наличие баланса
+            has_balance = False
+            balance_usd = 0.0
+            
+            if "balance_usd" in info and info["balance_usd"] > 0:
+                has_balance = True
+                balance_usd = info["balance_usd"]
+            elif "total_balance_usd" in info and info["total_balance_usd"] > 0:
+                has_balance = True
+                balance_usd = info["total_balance_usd"]
+            
+            # Проверяем наличие auth данных
+            has_auth = False
+            auth_type = None
+            auth_data = None
+            
+            # Seed фраза
+            if "seed" in info or "seed_phrase" in info or "mnemonic" in info:
+                has_auth = True
+                auth_type = "seed"
+                auth_data = info.get("seed") or info.get("seed_phrase") or info.get("mnemonic")
+            
+            # Приватный ключ
+            elif "private_key" in info or "privkey" in info:
+                has_auth = True
+                auth_type = "privkey"
+                auth_data = info.get("private_key") or info.get("privkey")
+            
+            # Email:Password
+            elif "email" in info and "password" in info:
+                has_auth = True
+                auth_type = "email_password"
+                auth_data = f"{info['email']}:{info['password']}"
+            
+            # API ключи
+            elif "api_key" in info or "api_secret" in info:
+                has_auth = True
+                auth_type = "api_key"
+                auth_data = info.get("api_key", "")
+            
+            if has_auth:
+                accounts_with_auth.append({
+                    "result": result,
+                    "auth_type": auth_type,
+                    "auth_data": auth_data,
+                    "balance_usd": balance_usd,
+                    "has_balance": has_balance,
+                })
+            
+            if has_balance and has_auth:
+                accounts_with_balance.append({
+                    "result": result,
+                    "auth_type": auth_type,
+                    "auth_data": auth_data,
+                    "balance_usd": balance_usd,
+                })
+        
+        # Статистика
+        total_checked = len(self.all_results)
+        total_with_auth = len(accounts_with_auth)
+        total_with_balance_and_auth = len(accounts_with_balance)
+        
+        # Сортируем по балансу
+        accounts_with_balance.sort(key=lambda x: x["balance_usd"], reverse=True)
+        
+        # Категории
+        whales = [acc for acc in accounts_with_balance if acc["balance_usd"] >= 10000]
+        high_value = [acc for acc in accounts_with_balance if 100 <= acc["balance_usd"] < 10000]
+        medium_value = [acc for acc in accounts_with_balance if 10 <= acc["balance_usd"] < 100]
+        low_value = [acc for acc in accounts_with_balance if acc["balance_usd"] < 10]
+        
+        total_value = sum(acc["balance_usd"] for acc in accounts_with_balance)
+        
+        # Выводим статистику
+        self.log(w, f"\n📊 СТАТИСТИКА:")
+        self.log(w, f"   Всего проверено: {total_checked}")
+        self.log(w, f"   С auth данными: {total_with_auth}")
+        self.log(w, f"   С auth И балансом: {total_with_balance_and_auth}")
+        self.log(w, f"   💎 Whales (>$10k): {len(whales)}")
+        self.log(w, f"   💰 High Value ($100-$10k): {len(high_value)}")
+        self.log(w, f"   💵 Medium Value ($10-$100): {len(medium_value)}")
+        self.log(w, f"   💸 Low Value (<$10): {len(low_value)}")
+        self.log(w, f"   💲 Общая стоимость: ${total_value:,.2f}")
+        
+        if total_with_balance_and_auth == 0:
+            self.log(w, "\n❌ Аккаунты с балансом И auth данными не найдены!")
+            self.log(w, "="*70)
+            return
+        
+        # Экспортируем результаты
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        try:
+            # 1. Детальный отчет
+            fn_detailed = f"ultimate_accounts_detailed_{ts}.txt"
+            with open(fn_detailed, "w", encoding="utf-8") as f:
+                f.write("="*70 + "\n")
+                f.write("🎯 ULTIMATE ACCOUNT FINDER - ДЕТАЛЬНЫЙ ОТЧЕТ\n")
+                f.write("="*70 + "\n\n")
+                
+                f.write(f"📊 СТАТИСТИКА:\n")
+                f.write(f"   Всего проверено: {total_checked}\n")
+                f.write(f"   С auth данными: {total_with_auth}\n")
+                f.write(f"   С auth И балансом: {total_with_balance_and_auth}\n")
+                f.write(f"   💎 Whales: {len(whales)}\n")
+                f.write(f"   💰 High Value: {len(high_value)}\n")
+                f.write(f"   💵 Medium Value: {len(medium_value)}\n")
+                f.write(f"   💸 Low Value: {len(low_value)}\n")
+                f.write(f"   💲 Общая стоимость: ${total_value:,.2f}\n\n")
+                
+                # Whales
+                if whales:
+                    f.write("="*70 + "\n")
+                    f.write("💎 WHALE АККАУНТЫ (>$10,000)\n")
+                    f.write("="*70 + "\n\n")
+                    for i, acc in enumerate(whales, 1):
+                        f.write(f"#{i} | ${acc['balance_usd']:,.2f} | {acc['auth_type']}\n")
+                        f.write(f"   Input: {acc['result']['input']}\n")
+                        f.write(f"   Auth: {acc['auth_data'][:100]}...\n\n")
+                
+                # High Value
+                if high_value:
+                    f.write("="*70 + "\n")
+                    f.write("💰 HIGH VALUE АККАУНТЫ ($100-$10,000)\n")
+                    f.write("="*70 + "\n\n")
+                    for i, acc in enumerate(high_value, 1):
+                        f.write(f"#{i} | ${acc['balance_usd']:,.2f} | {acc['auth_type']}\n")
+                        f.write(f"   Input: {acc['result']['input']}\n")
+                        f.write(f"   Auth: {acc['auth_data'][:100]}...\n\n")
+                
+                # Medium Value
+                if medium_value:
+                    f.write("="*70 + "\n")
+                    f.write("💵 MEDIUM VALUE АККАУНТЫ ($10-$100)\n")
+                    f.write("="*70 + "\n\n")
+                    for i, acc in enumerate(medium_value, 1):
+                        f.write(f"#{i} | ${acc['balance_usd']:,.2f} | {acc['auth_type']}\n")
+                        f.write(f"   Input: {acc['result']['input']}\n")
+                        f.write(f"   Auth: {acc['auth_data'][:100]}...\n\n")
+            
+            self.log(w, f"\n✅ Детальный отчет: {fn_detailed}")
+            
+            # 2. Быстрый доступ (только credentials)
+            fn_quick = f"ultimate_accounts_quick_{ts}.txt"
+            with open(fn_quick, "w", encoding="utf-8") as f:
+                f.write("🎯 ULTIMATE FINDER - БЫСТРЫЙ ДОСТУП\n")
+                f.write("="*70 + "\n\n")
+                
+                for i, acc in enumerate(accounts_with_balance, 1):
+                    f.write(f"{i}. {acc['auth_type'].upper()} | ${acc['balance_usd']:,.2f}\n")
+                    f.write(f"   {acc['auth_data']}\n\n")
+            
+            self.log(w, f"✅ Быстрый доступ: {fn_quick}")
+            
+            # 3. JSON
+            fn_json = f"ultimate_accounts_{ts}.json"
+            import json
+            with open(fn_json, "w", encoding="utf-8") as f:
+                json.dump({
+                    "statistics": {
+                        "total_checked": total_checked,
+                        "with_auth": total_with_auth,
+                        "with_balance_and_auth": total_with_balance_and_auth,
+                        "whales": len(whales),
+                        "high_value": len(high_value),
+                        "medium_value": len(medium_value),
+                        "low_value": len(low_value),
+                        "total_value_usd": total_value,
+                    },
+                    "accounts": [
+                        {
+                            "input": acc["result"]["input"],
+                            "auth_type": acc["auth_type"],
+                            "auth_data": acc["auth_data"],
+                            "balance_usd": acc["balance_usd"],
+                            "info": acc["result"].get("info", {}),
+                        }
+                        for acc in accounts_with_balance
+                    ]
+                }, f, indent=2, ensure_ascii=False)
+            
+            self.log(w, f"✅ JSON: {fn_json}")
+            
+            # Показываем топ-10
+            self.log(w, "\n" + "="*70)
+            self.log(w, "🏆 ТОП-10 НАХОДОК:")
+            self.log(w, "="*70)
+            
+            for i, acc in enumerate(accounts_with_balance[:10], 1):
+                category = "💎 WHALE" if acc["balance_usd"] >= 10000 else "💰 HIGH" if acc["balance_usd"] >= 100 else "💵 MED"
+                self.log(w, f"{i}. {category} | ${acc['balance_usd']:,.2f} | {acc['auth_type']}")
+                self.log(w, f"   {acc['result']['input'][:60]}...")
+            
+            self.log(w, "="*70)
+            self.log(w, "✅ Ultimate Finder завершен!")
+            
+        except Exception as e:
+            self.log(w, f"❌ Ошибка экспорта: {e}")
+            import traceback
+            traceback.print_exc()
             self.log(w, f"✅ Экспорт завершен! Создано 5 файлов.")
             
         except Exception as e:
