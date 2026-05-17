@@ -23,8 +23,8 @@ except ImportError:
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-# Установлена актуальная версия v1.0.72
-APP_VERSION = "1.0.72"
+# Установлена актуальная версия v1.0.73
+APP_VERSION = "1.0.73"
 
 if platform.system() == "Windows":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -2229,9 +2229,40 @@ class MultiCheckerApp(ctk.CTk):
         for tag, line in w.get("_log_lines", []):
             if ft == "all" or tag == ft or tag == "system":
                 lines_to_show.append((line, tag))
-            elif ft == "balance" and tag == "valid" and ("Balance:" in line or "balance" in line.lower()):
-                if "(empty)" not in line:
-                    lines_to_show.append((line, tag))
+            elif ft == "balance" and tag == "valid":
+                # 🎯 Улучшенная фильтрация: показываем ТОЛЬКО с реальным балансом
+                # Проверяем что есть баланс И он не пустой
+                if ("Balance:" in line or "balance" in line.lower() or "$" in line):
+                    # Исключаем пустые балансы
+                    if "(empty)" not in line and "0.0000" not in line and "$0.00" not in line:
+                        # Дополнительная проверка: есть ли цифры больше 0
+                        import re
+                        # Ищем паттерны типа "Balance: 1.23" или "$45.67" или "balance_eth: 0.5"
+                        has_positive_balance = False
+                        
+                        # Проверяем наличие положительных чисел в балансе
+                        balance_patterns = [
+                            r'Balance:\s*([0-9]+\.?[0-9]*)',  # Balance: 1.23
+                            r'\$([0-9]+\.?[0-9]*)',            # $45.67
+                            r'balance[_\s]*[a-z]*:\s*([0-9]+\.?[0-9]*)',  # balance_eth: 0.5
+                            r'~\$([0-9]+\.?[0-9]*)',           # ~$123.45
+                        ]
+                        
+                        for pattern in balance_patterns:
+                            matches = re.findall(pattern, line, re.IGNORECASE)
+                            for match in matches:
+                                try:
+                                    value = float(match)
+                                    if value > 0:
+                                        has_positive_balance = True
+                                        break
+                                except:
+                                    pass
+                            if has_positive_balance:
+                                break
+                        
+                        if has_positive_balance:
+                            lines_to_show.append((line, tag))
 
         def insert_batch(index=0):
             if w.get("_filter") != ft:
