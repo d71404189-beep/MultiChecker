@@ -99,6 +99,12 @@ class PriceService:
             "RUNE": "thorchain",
             "LUNA": "terra-luna-2",
             "LUNC": "terra-luna",
+
+            # v1.0.92: новые сети
+            "MNT": "mantle",
+            "GLMR": "moonbeam",
+            "XDAI": "xdai",
+            "CELO": "celo",
         }
         
         # Обратный маппинг (chain -> symbol)
@@ -125,6 +131,13 @@ class PriceService:
             "zksync": "ETH",
             "linea": "ETH",
             "scroll": "ETH",
+            # v1.0.92: новые сети
+            "blast": "ETH",
+            "mantle": "MNT",
+            "gnosis": "XDAI",
+            "celo": "CELO",
+            "moonbeam": "GLMR",
+            "opbnb": "BNB",
         }
     
     async def get_price(self, symbol: str) -> float:

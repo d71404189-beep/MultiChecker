@@ -66,7 +66,7 @@ class CrossChainChecker:
         },
         "fantom": {
             "name": "Fantom",
-            "rpc": "https://rpc.ftm.tools",
+            "rpc": "https://rpcapi.fantom.network",
             "explorer": "https://ftmscan.com",
             "native": "FTM",
             "chain_id": 250,

@@ -108,7 +108,7 @@ _EVM_CHAINS = [
     ("arbitrum",  "https://arb1.arbitrum.io/rpc",                  "ETH"),
     ("optimism",  "https://mainnet.optimism.io",                   "ETH"),
     # Новые сети v1.0.53
-    ("fantom",    "https://rpc.ftm.tools",                         "FTM"),
+    ("fantom",    "https://rpcapi.fantom.network",                         "FTM"),
     ("cronos",    "https://evm.cronos.org",                        "CRO"),
     ("zksync",    "https://mainnet.era.zksync.io",                 "ETH"),
     ("linea",     "https://rpc.linea.build",                       "ETH"),
@@ -382,7 +382,8 @@ class CryptoChecker(BaseChecker):
         global _PRICE_CACHE, _PRICE_CACHE_TS
         if _PRICE_CACHE and (time.time() - _PRICE_CACHE_TS) < _PRICE_TTL:
             return _PRICE_CACHE
-        ids = "bitcoin,ethereum,tron,solana,litecoin,dash,monero,ripple,dogecoin,binancecoin,the-open-network,cardano,matic-network,avalanche-2"
+        # v1.0.92: + fantom (раньше отсутствовал → Fantom USD всегда был $0), cronos, mantle, xdai, celo, moonbeam
+        ids = "bitcoin,ethereum,tron,solana,litecoin,dash,monero,ripple,dogecoin,binancecoin,the-open-network,cardano,matic-network,avalanche-2,fantom,crypto-com-chain,mantle,xdai,celo,moonbeam"
         url = f"https://api.coingecko.com/api/v3/simple/price?ids={ids}&vs_currencies=usd&include_24hr_change=true"
         try:
             resp = await self.fetch(session, "GET", url, timeout=timeout, proxy=None)
@@ -404,6 +405,13 @@ class CryptoChecker(BaseChecker):
                     "polygon":   {"price": d.get("matic-network",{}).get("usd",0), "change": d.get("matic-network",{}).get("usd_24h_change",0)},
                     "avalanche": {"price": d.get("avalanche-2",{}).get("usd",0), "change": d.get("avalanche-2",{}).get("usd_24h_change",0)},
                     "base":      {"price": d.get("ethereum",{}).get("usd",0), "change": d.get("ethereum",{}).get("usd_24h_change",0)},
+                    # v1.0.92: новые сети
+                    "fantom":    {"price": d.get("fantom",{}).get("usd",0), "change": d.get("fantom",{}).get("usd_24h_change",0)},
+                    "cronos":    {"price": d.get("crypto-com-chain",{}).get("usd",0), "change": d.get("crypto-com-chain",{}).get("usd_24h_change",0)},
+                    "mantle":    {"price": d.get("mantle",{}).get("usd",0), "change": d.get("mantle",{}).get("usd_24h_change",0)},
+                    "xdai":      {"price": d.get("xdai",{}).get("usd",0), "change": d.get("xdai",{}).get("usd_24h_change",0)},
+                    "celo":      {"price": d.get("celo",{}).get("usd",0), "change": d.get("celo",{}).get("usd_24h_change",0)},
+                    "moonbeam":  {"price": d.get("moonbeam",{}).get("usd",0), "change": d.get("moonbeam",{}).get("usd_24h_change",0)},
                 }
                 _PRICE_CACHE_TS = time.time()
             else:
@@ -1391,7 +1399,9 @@ class CryptoChecker(BaseChecker):
             try:
                 multichain = await check_evm_all_chains(
                     address, timeout, proxy, session, prices,
-                    networks=["bsc", "polygon", "arbitrum", "optimism", "base", "avalanche", "zksync", "linea"]
+                    networks=["bsc", "polygon", "arbitrum", "optimism", "base", "avalanche", "zksync", "linea",
+                              # v1.0.92: новые сети
+                              "fantom", "cronos", "scroll", "blast", "mantle", "gnosis", "celo", "moonbeam", "opbnb"]
                 )
                 mc_msg = format_multichain_message(multichain)
                 if mc_msg:

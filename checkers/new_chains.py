@@ -36,6 +36,18 @@ EXPLORERS = {
 }
 
 
+async def _get_live_price(symbol: str, fallback: float) -> float:
+    """v1.0.92: реальная цена через PriceService вместо хардкода (fallback при недоступности API)."""
+    try:
+        from checkers.price_service import global_price_service
+        price = await global_price_service.get_price(symbol)
+        if price and price > 0:
+            return float(price)
+    except Exception:
+        pass
+    return fallback
+
+
 class NewChainsChecker:
     """Проверка кошельков в новых блокчейнах"""
     
@@ -107,8 +119,7 @@ class NewChainsChecker:
                         result["balance"] = balance_eth
                         result["exists"] = balance_eth > 0
                         
-                        # Примерная цена ETH
-                        eth_price = 2500
+                        eth_price = await _get_live_price("ETH", 2500)
                         result["balance_usd"] = balance_eth * eth_price
                         
                         result["message"] = f"Balance: {balance_eth:.6f} ETH (~${result['balance_usd']:.2f})"
@@ -173,7 +184,7 @@ class NewChainsChecker:
                         result["balance"] = balance_eth
                         result["exists"] = balance_eth > 0
                         
-                        eth_price = 2500
+                        eth_price = await _get_live_price("ETH", 2500)
                         result["balance_usd"] = balance_eth * eth_price
                         
                         result["message"] = f"Balance: {balance_eth:.6f} ETH (~${result['balance_usd']:.2f})"
@@ -238,7 +249,7 @@ class NewChainsChecker:
                         result["balance"] = balance_eth
                         result["exists"] = balance_eth > 0
                         
-                        eth_price = 2500
+                        eth_price = await _get_live_price("ETH", 2500)
                         result["balance_usd"] = balance_eth * eth_price
                         
                         result["message"] = f"Balance: {balance_eth:.6f} ETH (~${result['balance_usd']:.2f})"
@@ -298,8 +309,7 @@ class NewChainsChecker:
                         result["balance"] = balance_sui
                         result["exists"] = balance_sui > 0
                         
-                        # Примерная цена SUI
-                        sui_price = 1.5
+                        sui_price = await _get_live_price("SUI", 1.5)
                         result["balance_usd"] = balance_sui * sui_price
                         
                         result["message"] = f"Balance: {balance_sui:.6f} SUI (~${result['balance_usd']:.2f})"
@@ -403,8 +413,7 @@ class NewChainsChecker:
                                     
                                     result["balance"] = balance_apt
                                     
-                                    # Примерная цена APT
-                                    apt_price = 8.0
+                                    apt_price = await _get_live_price("APT", 8.0)
                                     result["balance_usd"] = balance_apt * apt_price
                                     
                                     result["message"] = f"Balance: {balance_apt:.6f} APT (~${result['balance_usd']:.2f})"

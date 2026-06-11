@@ -72,7 +72,7 @@ EVM_CHAINS = [
     },
     {
         "name": "fantom",
-        "rpc": "https://rpc.ftm.tools",
+        "rpc": "https://rpcapi.fantom.network",
         "symbol": "FTM",
         "chain_id": 250,
         "explorer": "https://ftmscan.com",

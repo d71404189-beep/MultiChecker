@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-EVM Multichain Checker v1.0.88
+EVM Multichain Checker v1.0.92
 Один ETH адрес — проверка на всех EVM сетях параллельно.
-Сети: Ethereum, BSC, Polygon, Arbitrum, Optimism, Base, Avalanche, zkSync, Linea
+Сети: Ethereum, BSC, Polygon, Arbitrum, Optimism, Base, Avalanche, zkSync, Linea,
+      Fantom, Cronos, Scroll, Blast, Mantle, Gnosis, Celo, Moonbeam, opBNB
 """
 
 import asyncio
@@ -89,9 +90,74 @@ EVM_NETWORKS: List[Dict[str, Any]] = [
         "id":       "fantom",
         "name":     "Fantom",
         "symbol":   "FTM",
-        "rpc":      "https://rpc.ftm.tools",
+        "rpc":      "https://rpcapi.fantom.network",  # v1.0.92: rpc.ftm.tools умер (401 API key disabled)
         "price_key":"fantom",
         "explorer": "https://ftmscan.com",
+    },
+    # ── v1.0.92: новые сети ──
+    {
+        "id":       "cronos",
+        "name":     "Cronos",
+        "symbol":   "CRO",
+        "rpc":      "https://evm.cronos.org",
+        "price_key":"cronos",
+        "explorer": "https://cronoscan.com",
+    },
+    {
+        "id":       "scroll",
+        "name":     "Scroll",
+        "symbol":   "ETH",
+        "rpc":      "https://rpc.scroll.io",
+        "price_key":"ethereum",
+        "explorer": "https://scrollscan.com",
+    },
+    {
+        "id":       "blast",
+        "name":     "Blast",
+        "symbol":   "ETH",
+        "rpc":      "https://rpc.blast.io",
+        "price_key":"ethereum",
+        "explorer": "https://blastscan.io",
+    },
+    {
+        "id":       "mantle",
+        "name":     "Mantle",
+        "symbol":   "MNT",
+        "rpc":      "https://rpc.mantle.xyz",
+        "price_key":"mantle",
+        "explorer": "https://mantlescan.xyz",
+    },
+    {
+        "id":       "gnosis",
+        "name":     "Gnosis",
+        "symbol":   "xDAI",
+        "rpc":      "https://rpc.gnosischain.com",
+        "price_key":"xdai",
+        "explorer": "https://gnosisscan.io",
+    },
+    {
+        "id":       "celo",
+        "name":     "Celo",
+        "symbol":   "CELO",
+        "rpc":      "https://forno.celo.org",
+        "price_key":"celo",
+        "explorer": "https://celoscan.io",
+    },
+    {
+        "id":       "moonbeam",
+        "name":     "Moonbeam",
+        "symbol":   "GLMR",
+        "rpc":      "https://rpc.api.moonbeam.network",
+        "price_key":"moonbeam",
+        "explorer": "https://moonscan.io",
+    },
+    {
+        "id":       "opbnb",
+        "name":     "opBNB",
+        "symbol":   "BNB",
+        "rpc":      "https://opbnb-mainnet-rpc.bnbchain.org",
+        "price_key":"bnb",
+        "explorer": "https://opbnbscan.com",
     },
 ]
 
@@ -99,6 +165,11 @@ EVM_NETWORKS: List[Dict[str, Any]] = [
 _EXTRA_PRICE_IDS = {
     "avalanche": "avalanche-2",
     "fantom":    "fantom",
+    "cronos":    "crypto-com-chain",
+    "mantle":    "mantle",
+    "xdai":      "xdai",
+    "celo":      "celo",
+    "moonbeam":  "moonbeam",
 }
 
 

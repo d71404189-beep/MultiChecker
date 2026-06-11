@@ -3,8 +3,10 @@ from tkinter import filedialog, Canvas
 import asyncio
 import aiohttp
 import csv
+import html
 import json
 import os
+import time
 import platform
 import re
 import sys
@@ -24,7 +26,7 @@ except ImportError:
 sys.path.insert(0, os.path.dirname(__file__))
 
 # Установлена актуальная версия v1.0.91 - UI Layout fix
-APP_VERSION = "1.0.91"
+APP_VERSION = "1.0.92"
 
 if platform.system() == "Windows":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -1900,6 +1902,7 @@ class MultiCheckerApp(ctk.CTk):
         return total
 
     def _notify_telegram(self, w, msg):
+        """v1.0.92: отправка в фоновом потоке (не блокирует event loop) + ретраи."""
         token = w.get("tg_token")
         chat_id = w.get("tg_chat_id")
         if not token or not chat_id:
@@ -1911,16 +1914,48 @@ class MultiCheckerApp(ctk.CTk):
         enabled = w.get("tg_enabled")
         if enabled and not enabled.get():
             return
+        threading.Thread(
+            target=self._tg_send_worker,
+            args=(w, token_val, chat_id_val, msg),
+            daemon=True
+        ).start()
+
+    def _tg_send_worker(self, w, token_val, chat_id_val, msg, retries=3):
+        """Фоновая отправка Telegram сообщения с ретраями (учитывает rate limit 429)."""
         import urllib.request
         import urllib.parse
-        try:
-            url = f"https://api.telegram.org/bot{token_val}/sendMessage"
-            data = urllib.parse.urlencode({"chat_id": chat_id_val, "text": msg, "parse_mode": "HTML"}).encode()
-            req = urllib.request.Request(url, data=data, method="POST")
-            urllib.request.urlopen(req, timeout=5)
-            self.after(0, lambda: self.log(w, i18n.t("tg_sent")))
-        except Exception as e:
-            self.after(0, lambda: self.log(w, i18n.t("tg_error").format(str(e)[:60])))
+        import urllib.error
+        url = f"https://api.telegram.org/bot{token_val}/sendMessage"
+        data = urllib.parse.urlencode({"chat_id": chat_id_val, "text": msg, "parse_mode": "HTML"}).encode()
+        last_err = None
+        for attempt in range(retries):
+            try:
+                req = urllib.request.Request(url, data=data, method="POST")
+                urllib.request.urlopen(req, timeout=10)
+                self.after(0, lambda: self.log(w, i18n.t("tg_sent")))
+                return
+            except urllib.error.HTTPError as e:
+                last_err = e
+                if e.code == 429 and attempt < retries - 1:
+                    # Rate limit — ждём retry_after из ответа (или 3 сек)
+                    delay = 3.0
+                    try:
+                        import json as _json
+                        body = _json.loads(e.read().decode())
+                        delay = min(float(body.get("parameters", {}).get("retry_after", 3)), 30.0)
+                    except Exception:
+                        pass
+                    import time as _time
+                    _time.sleep(delay)
+                    continue
+                break
+            except Exception as e:
+                last_err = e
+                if attempt < retries - 1:
+                    import time as _time
+                    _time.sleep(1.5 * (attempt + 1))
+                    continue
+        self.after(0, lambda err=last_err: self.log(w, i18n.t("tg_error").format(str(err)[:60])))
 
     def _normalize(self, line, tab):
         raw = line.strip()
@@ -2182,6 +2217,7 @@ class MultiCheckerApp(ctk.CTk):
             self.after(0, lambda: self._sb_status.configure(text="● Готов", text_color=GREEN))
 
     async def _check_all(self, data, tab_name, threads, timeout, proxy, w):
+        t_start = time.time()  # v1.0.92: тайминг скана
         sem  = asyncio.Semaphore(threads)
         cats = ["Email", "Social", "Crypto", "Games", "AI"]
         total = len(data) * len(cats) if tab_name == "All" else len(data)
@@ -2347,8 +2383,9 @@ class MultiCheckerApp(ctk.CTk):
             rtype = r.get("type", "")
             notify_threshold = 0 if rtype in ("seed", "privkey_hex", "privkey_wif", "exchange_api") else 100
             if est > notify_threshold:
-                inp = r.get("input", "")[:30]
-                msg_text = r.get("info", {}).get("message", "")
+                # v1.0.92: экранируем HTML, чтобы спецсимволы не ломали parse_mode=HTML
+                inp = html.escape(r.get("input", "")[:30])
+                msg_text = html.escape(r.get("info", {}).get("message", ""))
                 if rtype == "seed":
                     tg_msg = f"<b>🌱 Seed Phrase with balance!</b>\n<code>{inp}</code>\n{msg_text[:200]}\nUSD: ~${est:,.2f}"
                 elif rtype == "privkey_hex":
@@ -2372,6 +2409,15 @@ class MultiCheckerApp(ctk.CTk):
             text=f"● {i18n.t('ready')}", text_color=GREEN))
         self.log(w, i18n.t("completed").format(len(self.results), total))
         self.log(w, "─" * 64)
+
+        # v1.0.92: итоговое Telegram-уведомление о завершении скана
+        elapsed = time.time() - t_start
+        mins, secs = divmod(int(elapsed), 60)
+        elapsed_str = f"{mins:02d}:{secs:02d}"
+        tg_summary = i18n.t("tg_summary").format(
+            tab_name, total, len(self.results),
+            f"{total_portfolio:,.2f}", elapsed_str)
+        self._notify_telegram(w, tg_summary)
 
         # v1.0.90: Автосохранение + автовыключение
         self.after(0, lambda: self._on_scan_complete(w, tab_name))
