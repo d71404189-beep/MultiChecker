@@ -140,6 +140,10 @@ class AISubscriptionChecker:
             "runway": self._check_runway_subscription,
             "suno": self._check_suno_subscription,
             "notion": self._check_notion_subscription,
+            # NEW
+            "huggingface": self._check_huggingface_subscription,
+            "perplexity": self._check_perplexity_subscription,
+            "cursor": self._check_cursor_subscription,
         }.get(service)
         
         if handler:
@@ -708,6 +712,85 @@ class AISubscriptionChecker:
             "services": services,
             "estimated_value": round(total_monthly * 6, 2),  # ИСПРАВЛЕНО: округление
         }
+
+
+    async def _check_huggingface_subscription(self, credentials: Dict, session: aiohttp.ClientSession) -> Dict:
+        """Проверка подписки Hugging Face"""
+        result = {
+            "service": "Hugging Face",
+            "has_subscription": False,
+            "tier": "free",
+            "plan_name": "Free",
+            "monthly_cost": 0.0,
+            "features": [],
+        }
+        try:
+            api_key = credentials.get("api_key", "")
+            if not api_key:
+                result["error"] = "No API key provided"
+                return result
+
+            headers = {"Authorization": f"Bearer {api_key}"}
+            resp = await session.get("https://huggingface.co/api/whoami",
+                                     headers=headers, timeout=10)
+            if resp.status == 200:
+                data = await resp.json()
+                resp.close()
+
+                is_pro = data.get("isPro", False)
+                if is_pro:
+                    result["has_subscription"] = True
+                    result["tier"] = "pro"
+                    result["plan_name"] = "Pro"
+                    result["monthly_cost"] = 9.0
+                    result["features"] = [
+                        "PRO badge",
+                        "ZeroGPU access (Shared GPU)",
+                        "Extended Inference API limits",
+                        "Priority support",
+                    ]
+                # Дополнительно — показываем username и организации
+                result["username"] = data.get("name", "")
+                result["email"] = data.get("email", "")
+                orgs = data.get("orgs", [])
+                if orgs:
+                    result["organizations"] = [o.get("name", "") for o in orgs]
+            elif resp.status == 401:
+                resp.close()
+                result["error"] = "Invalid token"
+            else:
+                resp.close()
+                result["error"] = f"HTTP {resp.status}"
+        except Exception as e:
+            result["error"] = str(e)
+        return result
+
+    async def _check_perplexity_subscription(self, credentials: Dict, session: aiohttp.ClientSession) -> Dict:
+        """Проверка подписки Perplexity AI"""
+        result = {
+            "service": "Perplexity AI",
+            "has_subscription": False,
+            "tier": "free",
+            "plan_name": "Free",
+            "monthly_cost": 0.0,
+            "features": [],
+        }
+        # Perplexity Pro требует авторизации через их сайт — нет публичного API
+        result["note"] = "Requires authenticated browser session"
+        return result
+
+    async def _check_cursor_subscription(self, credentials: Dict, session: aiohttp.ClientSession) -> Dict:
+        """Проверка подписки Cursor IDE"""
+        result = {
+            "service": "Cursor",
+            "has_subscription": False,
+            "tier": "free",
+            "plan_name": "Free",
+            "monthly_cost": 0.0,
+            "features": [],
+        }
+        result["note"] = "Requires Cursor account session"
+        return result
 
 
 # Глобальный экземпляр
