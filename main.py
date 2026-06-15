@@ -25,8 +25,8 @@ except ImportError:
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-# Установлена актуальная версия v1.0.91 - UI Layout fix
-APP_VERSION = "1.0.92"
+# Текущая версия приложения
+APP_VERSION = "1.0.93"
 
 if platform.system() == "Windows":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
