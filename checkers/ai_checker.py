@@ -292,6 +292,32 @@ class AIChecker(BaseChecker):
                 result = await handler(data, timeout, proxy, session)
                 if result.get("exists") and detected in self.auth_info:
                     result["info"]["auth"] = self.auth_info[detected]
+                    # NEW: Показываем доступные тиры подписок для найденного аккаунта
+                    if "subscription_tiers" in self.auth_info[detected]:
+                        result["info"]["subscription_tiers"] = self.auth_info[detected]["subscription_tiers"]
+
+                # NEW: Автопроверка подписки если введён API ключ
+                if result.get("exists") and self._is_api_key(data):
+                    creds = self._build_credentials_from_key(detected, data)
+                    if creds:
+                        try:
+                            sub_info = await global_subscription_checker.check_subscription(
+                                detected, creds, session, timeout
+                            )
+                            result["subscription"] = sub_info
+                            if sub_info.get("has_subscription"):
+                                result["info"]["active_plan"] = sub_info.get("plan_name", "Unknown")
+                                result["info"]["plan_cost"] = f"${sub_info.get('monthly_cost', 0):.2f}/мес"
+                                if sub_info.get("features"):
+                                    result["info"]["features"] = sub_info["features"]
+                                if sub_info.get("usage"):
+                                    result["info"]["usage"] = sub_info["usage"]
+                                if sub_info.get("limits"):
+                                    result["info"]["limits"] = sub_info["limits"]
+                            elif not sub_info.get("error"):
+                                result["info"]["subscription_status"] = "Free / Нет активной подписки"
+                        except Exception:
+                            pass
             else:
                 result["info"]["error"] = f"No checker for {detected}"
         finally:
@@ -301,6 +327,17 @@ class AIChecker(BaseChecker):
         return result
 
     def _detect_service(self, data: str) -> str:
+        # NEW: Определение сервиса по префиксу API ключа
+        stripped = data.strip()
+        if re.match(r'^sk-[A-Za-z0-9]{20,}$', stripped):
+            return "chatgpt"
+        if re.match(r'^hf_[A-Za-z0-9]{20,}$', stripped):
+            return "huggingface"
+        if re.match(r'^ghp_[A-Za-z0-9]{20,}$', stripped) or re.match(r'^gho_[A-Za-z0-9]{20,}$', stripped):
+            return "github_copilot"
+        if re.match(r'^[a-f0-9]{32}$', stripped):
+            return "elevenlabs"
+
         data_lower = data.lower()
         mapping = {
             "openai": "chatgpt", "chatgpt": "chatgpt",
@@ -319,8 +356,116 @@ class AIChecker(BaseChecker):
                 return svc
         return None
 
+    def _is_api_key(self, data: str) -> bool:
+        """Определяет, является ли ввод API ключом"""
+        stripped = data.strip()
+        patterns = [
+            r'^sk-[A-Za-z0-9]{20,}$',       # OpenAI
+            r'^hf_[A-Za-z0-9]{20,}$',        # HuggingFace
+            r'^ghp_[A-Za-z0-9]{20,}$',       # GitHub Personal
+            r'^gho_[A-Za-z0-9]{20,}$',       # GitHub OAuth
+            r'^[a-f0-9]{32}$',               # ElevenLabs
+        ]
+        return any(re.match(p, stripped) for p in patterns)
+
+    def _build_credentials_from_key(self, service: str, data: str) -> dict:
+        """Строит credentials dict из API ключа"""
+        stripped = data.strip()
+        if stripped.startswith('sk-'):
+            return {"access_token": stripped}
+        if stripped.startswith('hf_'):
+            return {"api_key": stripped}
+        if stripped.startswith('ghp_') or stripped.startswith('gho_'):
+            return {"github_token": stripped}
+        if service == 'elevenlabs' and re.match(r'^[a-f0-9]{32}$', stripped):
+            return {"api_key": stripped}
+        return {}
+
+    async def _check_openai_apikey(self, api_key, timeout, proxy, session):
+        """Проверка OpenAI API ключа и подписки"""
+        result = self.make_result(input=api_key[:8] + "...", service="chatgpt", valid=True)
+        try:
+            headers = {"Authorization": f"Bearer {api_key}"}
+            # Проверяем валидность ключа через models endpoint
+            resp = await self.fetch(session, "GET", "https://api.openai.com/v1/models",
+                                    timeout=timeout, proxy=proxy, headers=headers)
+            status = resp.status
+            resp.close()
+
+            if status == 200:
+                result["exists"] = True
+                result["info"]["message"] = "OpenAI API key is valid ✓"
+                result["info"]["key_type"] = "API Key"
+
+                # Проверяем биллинг
+                try:
+                    billing_resp = await self.fetch(
+                        session, "GET",
+                        "https://api.openai.com/v1/dashboard/billing/subscription",
+                        timeout=timeout, proxy=proxy, headers=headers
+                    )
+                    if billing_resp.status == 200:
+                        billing = await billing_resp.json()
+                        billing_resp.close()
+                        plan_id = billing.get("plan", {}).get("id", "free")
+                        if "plus" in plan_id.lower():
+                            result["info"]["active_plan"] = "ChatGPT Plus"
+                            result["info"]["plan_cost"] = "$20.00/мес"
+                        elif "team" in plan_id.lower():
+                            result["info"]["active_plan"] = "ChatGPT Team"
+                            result["info"]["plan_cost"] = "$25.00/мес"
+                        elif "enterprise" in plan_id.lower():
+                            result["info"]["active_plan"] = "ChatGPT Enterprise"
+                            result["info"]["plan_cost"] = "$60.00/мес"
+                        else:
+                            result["info"]["active_plan"] = "Pay as you go / Free"
+                        # Hard limit
+                        hard_limit = billing.get("hard_limit_usd")
+                        if hard_limit:
+                            result["info"]["hard_limit"] = f"${hard_limit} USD"
+                    else:
+                        billing_resp.close()
+                except Exception:
+                    pass
+
+                # Проверяем использование за месяц
+                try:
+                    from datetime import datetime
+                    now = datetime.utcnow()
+                    usage_url = (
+                        f"https://api.openai.com/v1/dashboard/billing/usage"
+                        f"?start_date={now.strftime('%Y-%m')}-01&end_date={now.strftime('%Y-%m-%d')}"
+                    )
+                    usage_resp = await self.fetch(
+                        session, "GET", usage_url,
+                        timeout=timeout, proxy=proxy, headers=headers
+                    )
+                    if usage_resp.status == 200:
+                        usage_data = await usage_resp.json()
+                        usage_resp.close()
+                        total_usage = usage_data.get("total_usage", 0) / 100  # cents → dollars
+                        result["info"]["usage_this_month"] = f"${total_usage:.2f}"
+                    else:
+                        usage_resp.close()
+                except Exception:
+                    pass
+
+            elif status == 401:
+                result["info"]["message"] = "API key invalid or revoked"
+            elif status == 429:
+                result["exists"] = True
+                result["info"]["message"] = "API key valid (rate limited)"
+            else:
+                result["info"]["message"] = f"HTTP {status}"
+        except Exception as e:
+            result["info"]["error"] = str(e)
+        return result
+
     async def _check_openai(self, email, timeout, proxy, session):
         result = self.make_result(input=email, service="chatgpt", valid=True)
+        # NEW: если это API ключ — используем отдельный метод
+        if re.match(r'^sk-[A-Za-z0-9]{20,}$', email.strip()):
+            return await self._check_openai_apikey(email.strip(), timeout, proxy, session)
         if "@" not in email or "." not in email.split("@")[-1]:
             result["info"]["message"] = "Not a valid email format"
             return result
@@ -453,7 +598,52 @@ class AIChecker(BaseChecker):
 
     async def _check_huggingface(self, username, timeout, proxy, session):
         result = self.make_result(input=username, service="huggingface", valid=True)
-        clean = username.strip().lstrip("@")
+        stripped = username.strip()
+
+        # NEW: если это HuggingFace API токен (hf_...)
+        if re.match(r'^hf_[A-Za-z0-9]{20,}$', stripped):
+            try:
+                headers = {"Authorization": f"Bearer {stripped}"}
+                resp = await self.fetch(session, "GET", "https://huggingface.co/api/whoami",
+                                       timeout=timeout, proxy=proxy, headers=headers)
+                if resp.status == 200:
+                    data = await resp.json()
+                    resp.close()
+                    result["exists"] = True
+                    result["info"]["message"] = "Hugging Face token is valid ✓"
+                    result["info"]["username"] = data.get("name", "")
+                    result["info"]["fullname"] = data.get("fullName", "")
+                    result["info"]["email"] = data.get("email", "")
+
+                    # Проверяем Pro подписку
+                    is_pro = data.get("isPro", False)
+                    orgs = data.get("orgs", [])
+                    if is_pro:
+                        result["info"]["active_plan"] = "Pro"
+                        result["info"]["plan_cost"] = "$9.00/мес"
+                        result["info"]["features"] = [
+                            "PRO badge",
+                            "ZeroGPU access (Shared GPU)",
+                            "Extended Inference API limits",
+                            "Priority support",
+                        ]
+                    else:
+                        result["info"]["active_plan"] = "Free"
+                        result["info"]["subscription_status"] = "Free / Нет Pro подписки"
+
+                    if orgs:
+                        result["info"]["organizations"] = [o.get("name", "") for o in orgs]
+                elif resp.status == 401:
+                    resp.close()
+                    result["info"]["message"] = "Token invalid or expired"
+                else:
+                    resp.close()
+                    result["info"]["message"] = f"HTTP {resp.status}"
+            except Exception as e:
+                result["info"]["error"] = str(e)
+            return result
+
+        clean = stripped.lstrip("@")
         try:
             url = f"https://huggingface.co/api/users/{clean}/overview"
             resp = await self.fetch(session, "GET", url, timeout=timeout, proxy=proxy)
