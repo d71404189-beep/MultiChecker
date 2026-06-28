@@ -17,8 +17,6 @@ CACHE_FILE = Path(__file__).with_name(".multichecker_runtime_v1_0_94.py")
 def _apply_ui_refresh(source: str) -> str:
     source = source.replace('APP_VERSION = "1.0.92"', 'APP_VERSION = "1.0.94"')
 
-    start = source.find('#  U')
-    # Fallback: replace known color constants one by one to avoid Unicode markers.
     colors = {
         'BG       = "#0a0e1a"': 'BG       = "#070B14"',
         'SIDEBAR  = "#0f1419"': 'SIDEBAR  = "#0B1220"',
